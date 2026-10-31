@@ -1,0 +1,5 @@
+# Cấu hình từng sàn. Giá trị khởi đầu, chỉnh lại sau khi measure_limits.py có số thật (bước 5).
+tiki:
+  requests_per_second: 0.2
+  max_concurrency: 2
+  timeout_seconds: 15
