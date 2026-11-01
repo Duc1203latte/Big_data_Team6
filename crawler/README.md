@@ -181,7 +181,8 @@ bigdata-crawler/
 │   ├── tiki.py
 │   ├── cellphones.py
 │   ├── hoangha.py
-│   └── fptshop.py
+│   ├── fptshop.py
+│   └── tgdd.py             # Thế Giới Di Động (thêm sau, sàn thứ 5)
 ├── jobs/
 │   ├── __init__.py
 │   ├── measure_limits.py   # đo giới hạn truy cập từng sàn
@@ -352,6 +353,7 @@ class Platform(ABC):
 | CellphoneS | JSON-LD (kiểm chứng ở bước 8) | Viết mới |
 | Hoàng Hà Mobile | HTML (kiểm chứng ở bước 8) | Viết mới |
 | FPT Shop | Dữ liệu Next.js nhúng trong HTML + JSON-LD | Viết mới ở bước 9 |
+| Thế Giới Di Động | Dữ liệu Next.js nhúng trong HTML + JSON-LD (ProductGroup) | Thêm sau bước 9 để tăng khối lượng |
 
 Shopee và Lazada chặn rất gắt (device fingerprint, signed request). **Không đưa vào kế hoạch.** Nếu sau này rảnh thì thử, hỏng thì bỏ, không được để tiến độ phụ thuộc vào hai sàn này.
 

@@ -3,6 +3,7 @@
 # CellphoneS thiet-bi-am-thanh, phu-kien: tắt vì là trang giới thiệu, không có lưới sản phẩm (chạy thử 2026-11-01).
 # FPT Shop: không phân trang thật, ~24 SP/URL; đường dẫn lấy từ menu của sàn (2026-11-01).
 # Hoàng Hà phụ kiện: số trang đếm bằng discover ngày 2026-11-01.
+# Thế Giới Di Động: không phân trang (?page=2 trùng trang 1), ~20 SP/URL; trang lọc lấy từ menu (2026-11-01).
 # Tiki: tắt từ 2026-11-01 vì bị chặn (xem docs/api_limits.md); số trang theo product_count của api/v2/categories.
 platform,category,page,url,enabled
 hoangha,dien-thoai-di-dong,1,https://hoanghamobile.com/dien-thoai-di-dong,1
@@ -182,6 +183,44 @@ fptshop,phu-kien/usb,,https://fptshop.com.vn/phu-kien/usb,1
 fptshop,phu-kien/o-cung-di-dong,,https://fptshop.com.vn/phu-kien/o-cung-di-dong,1
 fptshop,smartwatch/the-thao-chuyen-nghiep,,https://fptshop.com.vn/smartwatch/the-thao-chuyen-nghiep,1
 fptshop,smartwatch/vong-deo-tay,,https://fptshop.com.vn/smartwatch/vong-deo-tay,1
+tgdd,dtdd,,https://www.thegioididong.com/dtdd,1
+tgdd,dtdd-apple-iphone,,https://www.thegioididong.com/dtdd-apple-iphone,1
+tgdd,dtdd-apple-iphone-17-series,,https://www.thegioididong.com/dtdd-apple-iphone-17-series,1
+tgdd,dtdd-samsung,,https://www.thegioididong.com/dtdd-samsung,1
+tgdd,dtdd-samsung-galaxy-a,,https://www.thegioididong.com/dtdd-samsung-galaxy-a,1
+tgdd,dtdd-samsung-galaxy-s,,https://www.thegioididong.com/dtdd-samsung-galaxy-s,1
+tgdd,dtdd-oppo,,https://www.thegioididong.com/dtdd-oppo,1
+tgdd,dtdd-oppo-a,,https://www.thegioididong.com/dtdd-oppo-a,1
+tgdd,dtdd-oppo-reno,,https://www.thegioididong.com/dtdd-oppo-reno,1
+tgdd,dtdd-xiaomi,,https://www.thegioididong.com/dtdd-xiaomi,1
+tgdd,dtdd-vivo,,https://www.thegioididong.com/dtdd-vivo,1
+tgdd,dtdd-realme,,https://www.thegioididong.com/dtdd-realme,1
+tgdd,dtdd-honor,,https://www.thegioididong.com/dtdd-honor,1
+tgdd,dtdd-motorola,,https://www.thegioididong.com/dtdd-motorola,1
+tgdd,dtdd-tecno,,https://www.thegioididong.com/dtdd-tecno,1
+tgdd,dtdd-nubia,,https://www.thegioididong.com/dtdd-nubia,1
+tgdd,dtdd-gap,,https://www.thegioididong.com/dtdd-gap,1
+tgdd,dtdd-pho-thong,,https://www.thegioididong.com/dtdd-pho-thong,1
+tgdd,dtdd-5g,,https://www.thegioididong.com/dtdd-5g,1
+tgdd,dtdd-rom-128gb,,https://www.thegioididong.com/dtdd-rom-128gb,1
+tgdd,dtdd-rom-256gb,,https://www.thegioididong.com/dtdd-rom-256gb,1
+tgdd,laptop,,https://www.thegioididong.com/laptop,1
+tgdd,laptop-apple-macbook,,https://www.thegioididong.com/laptop-apple-macbook,1
+tgdd,may-tinh-bang,,https://www.thegioididong.com/may-tinh-bang,1
+tgdd,may-tinh-bang-apple-ipad,,https://www.thegioididong.com/may-tinh-bang-apple-ipad,1
+tgdd,dong-ho,,https://www.thegioididong.com/dong-ho,1
+tgdd,dong-ho-thong-minh-apple,,https://www.thegioididong.com/dong-ho-thong-minh-apple,1
+tgdd,tai-nghe,,https://www.thegioididong.com/tai-nghe,1
+tgdd,tai-nghe-apple-airpods,,https://www.thegioididong.com/tai-nghe-apple-airpods,1
+tgdd,sac-dtdd,,https://www.thegioididong.com/sac-dtdd,1
+tgdd,sac-cap,,https://www.thegioididong.com/sac-cap,1
+tgdd,pin,,https://www.thegioididong.com/pin,1
+tgdd,op-lung-flipcover,,https://www.thegioididong.com/op-lung-flipcover,1
+tgdd,mieng-dan-man-hinh,,https://www.thegioididong.com/mieng-dan-man-hinh,1
+tgdd,chuot-may-tinh,,https://www.thegioididong.com/chuot-may-tinh,1
+tgdd,ban-phim,,https://www.thegioididong.com/ban-phim,1
+tgdd,loa-laptop,,https://www.thegioididong.com/loa-laptop,1
+tgdd,tai-nghe-gaming,,https://www.thegioididong.com/tai-nghe-gaming,1
 tiki,1795,1,https://tiki.vn/api/personalish/v1/blocks/listings?limit=40&category=1795&page=1,0
 tiki,1795,2,https://tiki.vn/api/personalish/v1/blocks/listings?limit=40&category=1795&page=2,0
 tiki,1795,3,https://tiki.vn/api/personalish/v1/blocks/listings?limit=40&category=1795&page=3,0

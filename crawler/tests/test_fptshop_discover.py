@@ -99,8 +99,8 @@ def test_fpt_page_without_data(fpt):
     assert fpt.parse(raw.model_copy(update={"status_code": 500})) == []
 
 
-def test_registry_has_four_platforms():
-    assert set(PLATFORM_CLASSES) == {"tiki", "cellphones", "hoangha", "fptshop"}
+def test_registry_has_all_platforms():
+    assert set(PLATFORM_CLASSES) == {"tiki", "cellphones", "hoangha", "fptshop", "tgdd"}
 
 
 # ------------------------------ discover ------------------------------

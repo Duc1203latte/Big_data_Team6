@@ -21,7 +21,6 @@ Quy ước:
 
 import json
 import logging
-import re
 from typing import Any
 
 from bs4 import BeautifulSoup
@@ -36,6 +35,8 @@ from platforms.parsing import (
     first_image,
     first_offer,
     json_ld,
+    longest_object_list,
+    next_flight_text,
     slug_from_url,
     to_int,
     to_rating,
@@ -45,36 +46,15 @@ from platforms.parsing import (
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://fptshop.com.vn"
-FLIGHT_RE = re.compile(r"self\.__next_f\.push\((\[.*?\])\)</script>", re.DOTALL)
-_decoder = json.JSONDecoder()
 
-
-def flight_text(html: str) -> str:
-    """Nối các chuỗi trong self.__next_f.push([1, "..."]) thành một văn bản."""
-    parts = []
-    for match in FLIGHT_RE.finditer(html):
-        try:
-            chunk = json.loads(match.group(1))
-        except ValueError:
-            continue
-        if len(chunk) > 1 and isinstance(chunk[1], str):
-            parts.append(chunk[1])
-    return "".join(parts)
+# Đọc dữ liệu Next.js: hàm chung ở platforms/parsing.py
+flight_text = next_flight_text
 
 
 def main_product_list(flight: str) -> list[dict]:
-    """Danh sách sản phẩm chính của trang: trong mọi mảng "items":[...] chứa object
-    có currentPrice, lấy mảng dài nhất (các khối phụ như "Bán chạy nhất" chỉ 1-2 sản phẩm)."""
-    best: list[dict] = []
-    for match in re.finditer(r'"items":\[', flight):
-        try:
-            items, _ = _decoder.raw_decode(flight, match.end() - 1)
-        except ValueError:
-            continue
-        products = [x for x in items if isinstance(x, dict) and "currentPrice" in x]
-        if len(products) > len(best):
-            best = products
-    return best
+    """Danh sách sản phẩm chính: mảng "items" dài nhất chứa object có currentPrice
+    (khối phụ như "Bán chạy nhất" chỉ 1-2 sản phẩm)."""
+    return longest_object_list(flight, "items", "currentPrice")
 
 
 def stock_from_inventory(value: Any) -> bool | None:
