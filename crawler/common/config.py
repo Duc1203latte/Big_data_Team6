@@ -56,3 +56,22 @@ def load_settings(env_file: str | Path = ".env") -> Settings:
         log_level=os.getenv("LOG_LEVEL", "INFO"),
         contact_email=email,
     )
+
+
+# ---------------------------------------------------------------------------
+# Cấu hình từng sàn: config/platforms.yaml
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class PlatformLimits:
+    requests_per_second: float
+    max_concurrency: int = 1
+    timeout_seconds: float = 15
+
+
+def load_platform_limits(path: str | Path = "config/platforms.yaml") -> dict[str, PlatformLimits]:
+    """Đọc platforms.yaml -> {"tiki": PlatformLimits(...), ...}. Key lạ trong yaml sẽ báo lỗi."""
+    import yaml     # import ở đây để các job không cần yaml vẫn import config được
+
+    data = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+    return {name: PlatformLimits(**values) for name, values in data.items()}
