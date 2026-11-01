@@ -7,9 +7,11 @@ Mỗi sàn một HttpClient, gồm:
 - Retry bằng tenacity, backoff theo số mũ 5s, 10s, 20s, 40s... tối đa 5 phút:
   * lỗi mạng / timeout, 5xx: thử lại
   * 429 / 403: thử lại VÀ giảm tốc độ của sàn còn một nửa (thành công thì tăng dần lại)
-  * 403 liên tục quá 10 lần: ném PlatformBlocked để job dừng sàn đó
+  * "chặn mềm": sàn khai báo expect_json mà trả 2xx không phải JSON (trang kiểm tra
+    chống bot, Tiki trả mã 200 kèm HTML): xử lý y như 403
+  * 403 / chặn mềm liên tục quá 10 lần: ném PlatformBlocked để job dừng sàn đó
   * mã khác (200, 404...): trả về ngay
-Hết số lần thử mà vẫn 429/5xx thì trả response cuối cho parse() tự bỏ qua.
+Hết số lần thử mà vẫn bị chặn hoặc 5xx thì trả response cuối cho parse() tự bỏ qua.
 
 Không lách chống bot: không đổi proxy, không giả trình duyệt, không giải captcha.
 """
@@ -38,8 +40,20 @@ BLOCK_STATUSES = {403, 429}
 SERVER_ERROR_STATUSES = {500, 502, 503, 504}
 
 
+def looks_like_json(response: httpx.Response) -> bool:
+    """Response có phải JSON không: xem content-type, không rõ thì xem ký tự đầu của body."""
+    if "json" in response.headers.get("content-type", "").lower():
+        return True
+    return response.text.lstrip()[:1] in ("{", "[")
+
+
+def is_soft_block(response: httpx.Response, expect_json: bool) -> bool:
+    """Chặn mềm: mã 2xx nhưng nội dung không phải JSON ở sàn đáng lẽ trả JSON."""
+    return expect_json and 200 <= response.status_code < 300 and not looks_like_json(response)
+
+
 class PlatformBlocked(Exception):
-    """Sàn trả 403 liên tục: dừng crawl sàn này, ghi lại và báo nhóm."""
+    """Sàn chặn liên tục (403 hoặc chặn mềm): dừng crawl sàn này, ghi lại và báo nhóm."""
 
 
 class RobotsDisallowed(Exception):
@@ -64,18 +78,19 @@ class HttpClient:
         max_attempts: int = 6,
         backoff_base: float = 5.0,
         backoff_max: float = 300.0,
-        max_consecutive_403: int = 10,
+        max_consecutive_blocks: int = 10,
         transport: httpx.AsyncBaseTransport | None = None,   # test truyền MockTransport
     ) -> None:
         self.platform = platform
         self.user_agent = user_agent
+        self.expect_json = limits.expect_json
         self.bucket = TokenBucket(limits.requests_per_second)
         self._semaphore = asyncio.Semaphore(limits.max_concurrency)
         self.max_attempts = max_attempts
         self.backoff_base = backoff_base
         self.backoff_max = backoff_max
-        self.max_consecutive_403 = max_consecutive_403
-        self._consecutive_403 = 0
+        self.max_consecutive_blocks = max_consecutive_blocks
+        self._consecutive_blocks = 0        # số lần 403 / chặn mềm liên tiếp
         self._robots: dict[str, RobotFileParser] = {}        # host -> robots đã đọc
         self._client = httpx.AsyncClient(
             headers={"User-Agent": user_agent, "Accept": "application/json, text/html;q=0.9"},
@@ -134,15 +149,22 @@ class HttpClient:
     def _check_status(self, response: httpx.Response) -> None:
         """Phân loại mã trả về; mã cần thử lại thì ném RetryableStatus cho tenacity."""
         status = response.status_code
-        if status == 403:
-            self._consecutive_403 += 1
-            if self._consecutive_403 > self.max_consecutive_403:
+        soft_block = is_soft_block(response, self.expect_json)
+        if status == 403 or soft_block:
+            self._consecutive_blocks += 1
+            if self._consecutive_blocks > self.max_consecutive_blocks:
                 raise PlatformBlocked(
-                    f"{self.platform}: {self._consecutive_403} consecutive HTTP 403, stopping"
+                    f"{self.platform}: {self._consecutive_blocks} consecutive blocked responses "
+                    f"(HTTP 403 or anti-bot page), stopping"
                 )
         else:
-            self._consecutive_403 = 0
+            self._consecutive_blocks = 0
 
+        if soft_block:
+            logger.warning("%s returned non-JSON HTTP %s for %s (likely anti-bot challenge page)",
+                           self.platform, status, response.request.url)
+            self.bucket.slow_down()
+            raise RetryableStatus(response)
         if status in BLOCK_STATUSES:
             logger.warning("%s returned HTTP %s for %s", self.platform, status, response.request.url)
             self.bucket.slow_down()

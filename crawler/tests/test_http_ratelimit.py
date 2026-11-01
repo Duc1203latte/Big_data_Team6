@@ -65,13 +65,14 @@ def test_repo_platforms_yaml_is_valid():
 
 # ------------------------------ HttpClient ------------------------------
 
-def make_client(handler, **kwargs) -> HttpClient:
+def make_client(handler, expect_json: bool = False, **kwargs) -> HttpClient:
     """HttpClient chạy nhanh cho test: rate cao, backoff gần như 0, transport giả."""
     defaults = dict(max_attempts=4, backoff_base=0.001, backoff_max=0.01)
     defaults.update(kwargs)
     return HttpClient(
         "tiki",
-        PlatformLimits(requests_per_second=1000, max_concurrency=2, timeout_seconds=5),
+        PlatformLimits(requests_per_second=1000, max_concurrency=2, timeout_seconds=5,
+                       expect_json=expect_json),
         UA,
         transport=httpx.MockTransport(handler),
         **defaults,
@@ -195,6 +196,71 @@ async def test_consecutive_403_stops_platform():
 @pytest.mark.asyncio
 async def test_success_resets_403_counter():
     server = Server([403, 403, 403, 200] * 5)
-    async with make_client(server, max_attempts=4, max_consecutive_403=5) as client:
+    async with make_client(server, max_attempts=4, max_consecutive_blocks=5) as client:
         for _ in range(5):
             assert (await client.get("https://tiki.vn/x")).status_code == 200
+
+
+# ------------------------- chặn mềm (200 + trang HTML) -------------------------
+
+CHALLENGE_HTML = "<!DOCTYPE html><html><body>the system is inspecting your current network environment</body></html>"
+
+
+class ChallengeServer:
+    """Server giả kiểu Tiki khi chặn: trả lần lượt 'challenge' (200 + HTML) hoặc 'json' (200 + JSON)."""
+
+    def __init__(self, kinds):
+        self.kinds = list(kinds)
+        self.requests = 0
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/robots.txt":
+            return httpx.Response(200, text=ROBOTS)
+        self.requests += 1
+        kind = self.kinds.pop(0) if len(self.kinds) > 1 else self.kinds[0]
+        if kind == "challenge":
+            return httpx.Response(200, html=CHALLENGE_HTML)
+        return httpx.Response(200, json={"data": []})
+
+
+@pytest.mark.asyncio
+async def test_challenge_page_retried_and_slows_down():
+    server = ChallengeServer(["challenge", "json"])
+    async with make_client(server, expect_json=True) as client:
+        resp = await client.get("https://tiki.vn/api/x")
+        assert resp.json() == {"data": []}
+        assert server.requests == 2
+        assert client.bucket.rate < 1000                # đã giảm tốc
+
+
+@pytest.mark.asyncio
+async def test_challenge_page_returned_after_max_attempts():
+    server = ChallengeServer(["challenge"])
+    async with make_client(server, expect_json=True, max_attempts=3) as client:
+        resp = await client.get("https://tiki.vn/api/x")
+    assert "inspecting" in resp.text                   # parse() sẽ log "not JSON" và bỏ qua
+    assert server.requests == 3
+
+
+@pytest.mark.asyncio
+async def test_repeated_challenge_stops_platform():
+    server = ChallengeServer(["challenge"])
+    async with make_client(server, expect_json=True, max_attempts=4) as client:
+        for _ in range(2):
+            await client.get("https://tiki.vn/api/x")   # 8 lần bị chặn
+        with pytest.raises(PlatformBlocked):
+            await client.get("https://tiki.vn/api/x")   # lần thứ 11
+
+
+@pytest.mark.asyncio
+async def test_html_allowed_when_not_expecting_json():
+    # Sàn HTML (CellphoneS, Hoàng Hà...) trả HTML là bình thường
+    server = ChallengeServer(["challenge"])
+    async with make_client(server, expect_json=False) as client:
+        resp = await client.get("https://example.com/page")
+    assert resp.status_code == 200
+    assert server.requests == 1
+
+
+def test_repo_tiki_expects_json():
+    assert load_platform_limits("config/platforms.yaml")["tiki"].expect_json is True

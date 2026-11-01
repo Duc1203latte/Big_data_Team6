@@ -67,6 +67,9 @@ class PlatformLimits:
     requests_per_second: float
     max_concurrency: int = 1
     timeout_seconds: float = 15
+    # Sàn dùng API JSON: response 2xx mà không phải JSON (ví dụ trang kiểm tra chống bot
+    # của tường lửa, trả mã 200) bị coi là BỊ CHẶN, xử lý như 403.
+    expect_json: bool = False
 
 
 def load_platform_limits(path: str | Path = "config/platforms.yaml") -> dict[str, PlatformLimits]:

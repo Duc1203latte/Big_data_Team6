@@ -4,9 +4,12 @@ Bắn request với tốc độ tăng dần (mặc định 0,2 -> 0,5 -> 1 -> 2 
 mỗi mức 2 phút), ghi lại lúc bắt đầu gặp 429/403 và độ trễ, rồi ghi thêm
 một mục vào docs/api_limits.md.
 
+"Bị chặn" gồm 429, 403 và chặn mềm: sàn khai báo expect_json trong platforms.yaml
+mà trả mã 200 kèm trang HTML (trang kiểm tra chống bot, Tiki làm vậy).
+
 Dừng sớm để không làm phiền sàn:
-- Một mức gặp đủ 5 lần 429/403 thì dừng mức đó ngay.
-- Mức nào đã gặp 429/403 thì không lên mức cao hơn.
+- Một mức bị chặn đủ 5 lần thì dừng mức đó ngay.
+- Mức nào đã bị chặn thì không lên mức cao hơn.
 
 Chạy (trong thư mục crawler/):
     python -m jobs.measure_limits --platform tiki
@@ -23,7 +26,8 @@ from pathlib import Path
 
 import httpx
 
-from common.config import load_settings
+from common.config import load_platform_limits, load_settings
+from common.http import is_soft_block
 from common.logging_setup import setup_logging
 
 logger = logging.getLogger("measure_limits")
@@ -36,7 +40,8 @@ PROBE_URLS = {
     ],
 }
 DEFAULT_RATES = [0.2, 0.5, 1.0, 2.0]
-BLOCK_STATUSES = {403, 429}
+SOFT_BLOCK = -1     # mã giả: 200 nhưng là trang chặn (HTML) thay vì JSON
+BLOCK_STATUSES = {403, 429, SOFT_BLOCK}
 MAX_BLOCKS_PER_LEVEL = 5
 
 
@@ -45,9 +50,9 @@ class LevelResult:
     """Kết quả đo ở một mức tốc độ."""
 
     rate: float
-    statuses: list[int] = field(default_factory=list)       # 0 = lỗi mạng hoặc timeout
+    statuses: list[int] = field(default_factory=list)       # 0 = lỗi mạng, -1 = chặn mềm
     latencies_ms: list[float] = field(default_factory=list)
-    first_block_s: float | None = None                      # giây thứ mấy gặp 429/403 đầu tiên
+    first_block_s: float | None = None                      # giây thứ mấy bị chặn lần đầu
     aborted: bool = False                                   # dừng sớm vì bị chặn quá nhiều
 
     def count(self, *statuses: int) -> int:
@@ -76,7 +81,8 @@ class LevelResult:
         return statistics.quantiles(self.latencies_ms, n=20)[18]
 
 
-async def run_level(client, urls: list[str], rate: float, duration_s: float) -> LevelResult:
+async def run_level(client, urls: list[str], rate: float, duration_s: float,
+                    expect_json: bool = False) -> LevelResult:
     """Bắn request đều đặn ở tốc độ `rate` trong `duration_s` giây.
 
     Lịch gửi cố định (request thứ i gửi ở giây i / rate) và mỗi request chạy
@@ -92,7 +98,7 @@ async def run_level(client, urls: list[str], rate: float, duration_s: float) -> 
         start = time.monotonic()
         try:
             resp = await client.get(url)
-            status = resp.status_code
+            status = SOFT_BLOCK if is_soft_block(resp, expect_json) else resp.status_code
         except httpx.HTTPError as exc:
             logger.warning("Request failed: %s", type(exc).__name__)
             status = 0
@@ -100,13 +106,14 @@ async def run_level(client, urls: list[str], rate: float, duration_s: float) -> 
         result.latencies_ms.append((time.monotonic() - start) * 1000)
         if status in BLOCK_STATUSES and result.first_block_s is None:
             result.first_block_s = start - t0
-            logger.warning("First HTTP %s at %.0fs into %.1f req/s level", status, start - t0, rate)
+            logger.warning("First block (%s) at %.0fs into %.1f req/s level",
+                           "anti-bot page" if status == SOFT_BLOCK else f"HTTP {status}", start - t0, rate)
 
     tasks = []
     for i in range(total):
         if result.blocked >= MAX_BLOCKS_PER_LEVEL:
             result.aborted = True
-            logger.warning("Too many 429/403 at %.1f req/s, aborting this level", rate)
+            logger.warning("Too many blocked responses at %.1f req/s, aborting this level", rate)
             break
         # Ngủ tới đúng lịch gửi của request thứ i
         await asyncio.sleep(max(0.0, t0 + i * interval - time.monotonic()))
@@ -127,10 +134,12 @@ def render_report(platform: str, urls: list[str], user_agent: str,
         "",
         f"- URL đo: {len(urls)} trang danh sách, ví dụ `{urls[0]}`",
         f"- User-Agent: `{user_agent.split(' (')[0]} (academic research project; contact: ...)`",
-        f"- Mỗi mức {duration_s:.0f} giây; dừng mức khi gặp {MAX_BLOCKS_PER_LEVEL} lần 429/403",
+        f"- Mỗi mức {duration_s:.0f} giây; dừng mức khi bị chặn {MAX_BLOCKS_PER_LEVEL} lần",
+        "- \"Trang chặn\": mã 200 nhưng trả trang HTML kiểm tra chống bot thay vì JSON",
         "",
-        "| Mức (req/s) | Request | 2xx | 429 | 403 | Lỗi khác | Độ trễ TB (ms) | p95 (ms) | 429/403 đầu tiên |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| Mức (req/s) | Request | 2xx (JSON) | 429 | 403 | Trang chặn | Lỗi khác "
+        "| Độ trễ TB (ms) | p95 (ms) | Bị chặn lần đầu |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for r in results:
         first = "-" if r.first_block_s is None else f"giây {r.first_block_s:.0f}"
@@ -138,7 +147,7 @@ def render_report(platform: str, urls: list[str], user_agent: str,
             first += " (dừng sớm)"
         lines.append(
             f"| {r.rate:g} | {len(r.statuses)} | {r.ok} | {r.count(429)} | {r.count(403)} "
-            f"| {r.other_errors} | {fmt_ms(r.avg_ms)} | {fmt_ms(r.p95_ms)} | {first} |"
+            f"| {r.count(SOFT_BLOCK)} | {r.other_errors} | {fmt_ms(r.avg_ms)} | {fmt_ms(r.p95_ms)} | {first} |"
         )
 
     safe = [r.rate for r in results if r.blocked == 0 and r.other_errors == 0]
@@ -171,6 +180,8 @@ async def measure(platform: str, rates: list[float], duration_s: float,
     settings = load_settings()
     setup_logging(level=settings.log_level)
     urls = PROBE_URLS[platform]
+    limits = load_platform_limits().get(platform)
+    expect_json = bool(limits and limits.expect_json)
     started_at = datetime.now(timezone.utc)
     results: list[LevelResult] = []
 
@@ -178,7 +189,7 @@ async def measure(platform: str, rates: list[float], duration_s: float,
     async with httpx.AsyncClient(headers=headers, timeout=15) as client:
         for idx, rate in enumerate(rates):
             logger.info("Measuring %s at %.1f req/s for %.0fs", platform, rate, duration_s)
-            result = await run_level(client, urls, rate, duration_s)
+            result = await run_level(client, urls, rate, duration_s, expect_json)
             results.append(result)
             logger.info("%.1f req/s: %d requests, %d ok, %d blocked, avg %s ms",
                         rate, len(result.statuses), result.ok, result.blocked, fmt_ms(result.avg_ms))

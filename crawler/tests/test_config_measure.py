@@ -56,7 +56,7 @@ def test_missing_env_file_is_ok(tmp_path, monkeypatch):
 # --------------------------- measure_limits ---------------------------
 
 class FakeClient:
-    """Trả về các status code theo thứ tự cho trước."""
+    """Trả về các status code theo thứ tự cho trước. -1 = trang chặn (200 + HTML)."""
 
     def __init__(self, statuses):
         self.statuses = list(statuses)
@@ -67,7 +67,9 @@ class FakeClient:
         self.calls += 1
         if status == 0:
             raise httpx.ConnectTimeout("timeout")
-        return httpx.Response(status)
+        if status == -1:
+            return httpx.Response(200, html="<html>inspecting your network environment</html>")
+        return httpx.Response(status, json={})
 
 
 @pytest.mark.asyncio
@@ -102,7 +104,7 @@ def test_render_report_conclusion():
     text = render_report("tiki", ["https://x"], "bigdata-crawler/0.1.0 (academic research project; contact: a@b.c)",
                          datetime(2026, 11, 1, 14, 0, tzinfo=timezone.utc), 120, [ok, blocked])
     assert "## tiki — 2026-11-01 14:00 UTC" in text
-    assert "| 0.5 | 60 | 60 | 0 | 0 | 0 | 200 | 200 | - |" in text
+    assert "| 0.5 | 60 | 60 | 0 | 0 | 0 | 0 | 200 | 200 | - |" in text
     assert "giây 42" in text
     assert "bắt đầu bị chặn ở 1 req/s" in text
     assert "a@b.c" not in text                     # không lộ email trong báo cáo
@@ -121,3 +123,20 @@ def test_parse_args_defaults():
     args = parse_args(["--platform", "tiki"])
     assert args.rates == [0.2, 0.5, 1.0, 2.0]
     assert args.duration == 120
+
+
+@pytest.mark.asyncio
+async def test_run_level_counts_challenge_page_as_block():
+    # Kiểu Tiki: 200 nhưng là trang HTML chặn bot -> phải tính là bị chặn, không phải thành công
+    client = FakeClient([200, -1])
+    result = await run_level(client, ["u"], rate=200, duration_s=0.5, expect_json=True)
+    assert result.ok == 1
+    assert result.blocked >= 5
+    assert result.aborted
+
+
+@pytest.mark.asyncio
+async def test_run_level_html_ok_when_not_expecting_json():
+    result = await run_level(FakeClient([-1]), ["u"], rate=100, duration_s=0.05, expect_json=False)
+    assert result.blocked == 0
+    assert result.ok == len(result.statuses)
