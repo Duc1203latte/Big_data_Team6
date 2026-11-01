@@ -1,0 +1,12 @@
+{
+ "ref": {
+  "platform": "fptshop",
+  "kind": "detail",
+  "url": "https://fptshop.com.vn/dien-thoai/iphone-duo",
+  "product_id": "iphone-duo"
+ },
+ "status_code": 200,
+ "body": "<html><head><script type=\"application/ld+json\">{\"@context\": \"https://schema.org\", \"@type\": \"BreadcrumbList\", \"itemListElement\": [{\"@type\": \"ListItem\", \"position\": 1, \"name\": \"Trang chủ\", \"item\": \"https://fptshop.com.vn/\"}, {\"@type\": \"ListItem\", \"position\": 2, \"name\": \"Điện thoại\", \"item\": \"https://fptshop.com.vn/dien-thoai\"}, {\"@type\": \"ListItem\", \"position\": 3, \"name\": \"Apple (iPhone)\", \"item\": \"https://fptshop.com.vn/dien-thoai/apple-iphone\"}]}</script><script type=\"application/ld+json\">{\"@context\": \"https://schema.org/\", \"@type\": \"Product\", \"name\": \"iPhone Duo\", \"image\": \"https://cdn2.fptshop.com.vn/unsafe/iphone_duo_star_white_1_8d3bd46a87.png\", \"description\": \"\\\"iPhone Duo màn hình gập 7.6 inch, chip A20 Pro, mở bán 23/10 giá từ 64.99tr, sẵn hàng đủ bản từ 256GB/512GB/1TB/2TB. Trả góp 0%, ưu đãi 3 triệu tại FPTShop.\\\"\", \"sku\": \"00930750\", \"mpn\": \"00930750\", \"offers\": {\"@type\": \"Offer\", \"url\": \"https://fptshop.com.vn/dien-thoai/iphone-duo\", \"priceCurrency\": \"VND\", \"priceValidUntil\": \"2026-11-01\", \"seller\": {\"@type\": \"Organization\", \"name\": \"FPT Shop\"}, \"itemCondition\": \"https://schema.org/NewCondition\", \"availability\": \"https://schema.org/InStock\"}}</script></head><body></body></html>",
+ "content_type": "text/html; charset=utf-8",
+ "fetched_at": "2026-11-01T14:45:15.351917+00:00"
+}

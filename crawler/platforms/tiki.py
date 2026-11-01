@@ -26,6 +26,7 @@ from platforms.base import Platform
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://tiki.vn"
+LISTING_API = "https://tiki.vn/api/personalish/v1/blocks/listings?limit=40&category={category}&page={page}"
 PRODUCT_API = "https://tiki.vn/api/v2/products/{product_id}"
 REVIEWS_API = "https://tiki.vn/api/v2/reviews"
 
@@ -110,9 +111,33 @@ def star_count(stars: dict, star: str) -> int | None:
 class TikiPlatform(Platform):
     name = "tiki"
 
-    def discover(self, category: str):
-        # Liệt kê toàn bộ trang của danh mục: làm ở bước 9 (crawl_full)
-        raise NotImplementedError("Tiki discover is implemented in step 9")
+    async def discover(self, category: str):
+        """Gọi trang 1 của API danh sách để đọc paging.last_page, rồi trả ref từng trang.
+        category là id danh mục Tiki, ví dụ "1795"."""
+        first = self._listing_ref(category, 1)
+        raw = await self.fetch(first)
+        last_page = self.last_page(raw)
+        if last_page is None:
+            logger.warning("Cannot discover Tiki category %s: HTTP %s", category, raw.status_code)
+            return
+        logger.info("Discovered Tiki category %s: %d pages", category, last_page)
+        for page in range(1, last_page + 1):
+            yield self._listing_ref(category, page)
+
+    def _listing_ref(self, category: str, page: int) -> ProductRef:
+        return ProductRef(platform=self.name, kind="listing", category=category, page=page,
+                          url=LISTING_API.format(category=category, page=page))
+
+    @staticmethod
+    def last_page(raw: RawResponse) -> int | None:
+        """paging.last_page của trang danh sách; đọc không được thì None."""
+        if raw.status_code != 200:
+            return None
+        try:
+            payload = json.loads(raw.body)
+        except ValueError:
+            return None
+        return to_int(as_dict(as_dict(payload).get("paging")).get("last_page"))
 
     # ----------------------------- fetch -----------------------------
 

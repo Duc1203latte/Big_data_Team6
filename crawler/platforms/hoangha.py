@@ -13,6 +13,8 @@ Quy ước (đã thống nhất):
 """
 
 import logging
+import math
+import re
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
@@ -43,11 +45,40 @@ BASE_URL = "https://hoanghamobile.com"
 STOCK_TEXT_MAP = {"sẵn hàng": True, "còn hàng": True, "hết hàng": False}
 
 
+def listing_url(category: str, page: int) -> str:
+    """Trang 1 không có tham số, trang N là ?p=N (đúng như link "Xem thêm" của sàn)."""
+    return f"{BASE_URL}/{category}" + (f"?p={page}" if page > 1 else "")
+
+
+def page_count(soup: BeautifulSoup) -> int:
+    """Số trang của danh mục, tính từ trang 1: số thẻ sản phẩm và nút "Xem thêm N sản phẩm"."""
+    cards = len(soup.select("div.pj16-item"))
+    if cards == 0:
+        return 0
+    more = text_of(soup.select_one("#page-pager a")) or ""
+    match = re.search(r"(\d[\d.,]*)\s*sản phẩm", more)
+    if not match:
+        return 1
+    remaining = int(re.sub(r"\D", "", match.group(1)))
+    return 1 + math.ceil(remaining / cards)
+
+
 class HoanghaPlatform(Platform):
     name = "hoangha"
 
-    def discover(self, category: str):
-        raise NotImplementedError("Hoang Ha discover is implemented in step 9")
+    async def discover(self, category: str):
+        """Gọi trang 1 để biết số trang, rồi trả về ref của từng trang (category: "dien-thoai-di-dong")."""
+        first = ProductRef(platform=self.name, kind="listing", url=listing_url(category, 1),
+                           category=category, page=1)
+        raw = await self.fetch(first)
+        if raw.status_code != 200:
+            logger.warning("Cannot discover %s: HTTP %s", category, raw.status_code)
+            return
+        pages = page_count(BeautifulSoup(raw.body, "html.parser"))
+        logger.info("Discovered %s: %d pages", category, pages)
+        for page in range(1, pages + 1):
+            yield ProductRef(platform=self.name, kind="listing", url=listing_url(category, page),
+                             category=category, page=page)
 
     async def fetch(self, ref: ProductRef) -> RawResponse:
         resp = await self.http.get(ref.url)

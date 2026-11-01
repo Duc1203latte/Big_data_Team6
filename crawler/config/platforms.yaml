@@ -1,6 +1,11 @@
 # Cấu hình từng sàn. Số đo thực tế: docs/api_limits.md (bước 5).
+#   requests_per_second      tốc độ của crawl_hot
+#   full_requests_per_second tốc độ của crawl_full (chạy song song với crawl_hot nên thấp hơn)
+#   hot_cycle_minutes        chu kỳ nhóm hot
+#   max_details_per_run      số trang chi tiết tối đa mỗi lần crawl_full
 tiki:
   requests_per_second: 0.2
+  full_requests_per_second: 0.06
   max_concurrency: 2
   timeout_seconds: 15
   # Tiki chặn bằng trang HTML kiểm tra chống bot kèm mã 200 (đo ngày 2026-11-01),
@@ -10,11 +15,23 @@ tiki:
 cellphones:
   # Trang danh mục nặng ~1,7 MB nên để chậm hơn; nhóm hot của CellphoneS chạy chu kỳ 60 phút
   requests_per_second: 0.1
+  full_requests_per_second: 0.03
   hot_cycle_minutes: 60
+  max_details_per_run: 150
   max_concurrency: 1
   timeout_seconds: 30
 
 hoangha:
   requests_per_second: 0.2
+  full_requests_per_second: 0.05
   max_concurrency: 1
   timeout_seconds: 20
+
+fptshop:
+  # Trang nặng ~2,7 MB (dữ liệu Next.js nhúng trong HTML)
+  requests_per_second: 0.1
+  full_requests_per_second: 0.03
+  hot_cycle_minutes: 60
+  max_details_per_run: 150
+  max_concurrency: 1
+  timeout_seconds: 30

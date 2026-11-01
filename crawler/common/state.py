@@ -30,7 +30,8 @@ CREATE TABLE IF NOT EXISTS catalog (
     url         TEXT,
     first_seen  TEXT NOT NULL,
     last_seen   TEXT NOT NULL,
-    is_hot      INTEGER NOT NULL DEFAULT 0   -- SQLite không có kiểu bool: 0/1
+    is_hot      INTEGER NOT NULL DEFAULT 0,  -- SQLite không có kiểu bool: 0/1
+    detail_at   TEXT                         -- lần cuối lấy trang chi tiết (ProductEvent), NULL = chưa lấy
 );
 CREATE INDEX IF NOT EXISTS idx_catalog_platform ON catalog (platform);
 """
@@ -57,6 +58,14 @@ class StateStore:
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA busy_timeout=5000")
         self.conn.executescript(SCHEMA_SQL)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """DB tạo từ phiên bản cũ (trước bước 9) chưa có cột catalog.detail_at: thêm vào."""
+        columns = {row[1] for row in self.conn.execute("PRAGMA table_info(catalog)")}
+        if "detail_at" not in columns:
+            with self.conn:
+                self.conn.execute("ALTER TABLE catalog ADD COLUMN detail_at TEXT")
 
     def close(self) -> None:
         self.conn.close()
@@ -172,6 +181,27 @@ class StateStore:
             (make_product_key(platform, product_id),),
         ).fetchone()
         return dict(row) if row else None
+
+    def products_needing_detail(self, platform: str, limit: int, stale_before: datetime) -> list[dict]:
+        """Sản phẩm cần lấy trang chi tiết: chưa lấy bao giờ, hoặc lấy trước stale_before.
+        Ưu tiên: chưa lấy bao giờ -> nhóm hot -> lâu chưa lấy nhất."""
+        rows = self.conn.execute(
+            """
+            SELECT product_id, url FROM catalog
+            WHERE platform = ? AND url IS NOT NULL AND (detail_at IS NULL OR detail_at < ?)
+            ORDER BY detail_at IS NOT NULL, is_hot DESC, detail_at, last_seen DESC
+            LIMIT ?
+            """,
+            (platform, to_iso(stale_before), limit),
+        )
+        return [dict(r) for r in rows]
+
+    def mark_detail_done(self, platform: str, product_id: str, at: datetime) -> None:
+        with self.conn:
+            self.conn.execute(
+                "UPDATE catalog SET detail_at = ? WHERE product_key = ?",
+                (to_iso(at), make_product_key(platform, product_id)),
+            )
 
     def count_products(self, platform: str | None = None) -> int:
         if platform:

@@ -5,7 +5,7 @@ KEY=VALUE nên tự đọc là đủ.
 """
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 
@@ -72,6 +72,15 @@ class PlatformLimits:
     expect_json: bool = False
     # Chu kỳ crawl nhóm hot (phút). Sàn có trang nặng (CellphoneS) để thưa hơn.
     hot_cycle_minutes: int = 30
+    # crawl_full chạy song song với crawl_hot nên dùng tốc độ riêng, thấp hơn
+    # (None = một nửa requests_per_second), và giới hạn số trang chi tiết mỗi lần chạy.
+    full_requests_per_second: float | None = None
+    max_details_per_run: int = 300
+
+    def for_full_crawl(self) -> "PlatformLimits":
+        """Bản sao cấu hình với tốc độ dành cho crawl_full."""
+        rate = self.full_requests_per_second or self.requests_per_second / 2
+        return replace(self, requests_per_second=rate)
 
 
 def load_platform_limits(path: str | Path = "config/platforms.yaml") -> dict[str, PlatformLimits]:

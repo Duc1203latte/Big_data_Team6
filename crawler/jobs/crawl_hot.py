@@ -80,6 +80,38 @@ def load_watchlist(path: str | Path) -> dict[str, list[WatchItem]]:
     return items
 
 
+async def crawl_page(platform: Platform, ref: ProductRef, sink: FileSink, state: StateStore,
+                     is_hot: bool | None) -> int:
+    """Crawl một trang: fetch -> parse -> bỏ event trùng -> ghi JSONL -> cập nhật catalog.
+
+    Trả về số event đã ghi (0 nếu trang lỗi hoặc không có dữ liệu).
+    PlatformBlocked không bắt ở đây: để vòng ngoài dừng cả sàn. Dùng chung cho crawl_full.
+    """
+    try:
+        raw = await platform.fetch(ref)
+    except RobotsDisallowed:
+        logger.warning("Skip %s: disallowed by robots.txt", ref.url)
+        return 0
+    except httpx.HTTPError as exc:
+        logger.warning("Skip %s: %s", ref.url, type(exc).__name__)
+        return 0
+
+    # Cùng một sản phẩm có thể xuất hiện 2 lần trên một trang (trang tổng hợp, ô quảng cáo):
+    # cùng giây, cùng sản phẩm -> cùng event_id, giữ một bản để không ghi trùng
+    events = list({e.event_id: e for e in platform.parse(raw)}.values())
+    if not events:
+        logger.warning("No events from %s (HTTP %s)", ref.url, raw.status_code)
+        return 0
+    sink.write(events)
+    state.upsert_products(
+        platform.name,
+        [(e.product_id, e.url) for e in events if e.event_type == "price"],
+        seen_at=raw.fetched_at,
+        is_hot=is_hot,
+    )
+    return len(events)
+
+
 async def run_cycle(platform: Platform, items: list[WatchItem], state: StateStore, landing_dir: Path) -> int:
     """Một vòng crawl của một sàn. Trả về số event đã ghi.
 
@@ -95,30 +127,9 @@ async def run_cycle(platform: Platform, items: list[WatchItem], state: StateStor
         for item in items:
             ref = ProductRef(platform=platform.name, kind="listing", url=item.url,
                              category=item.category, page=item.page)
-            try:
-                raw = await platform.fetch(ref)
-            except RobotsDisallowed:
-                logger.warning("Skip %s: disallowed by robots.txt", item.url)
-                continue
-            except httpx.HTTPError as exc:
-                logger.warning("Skip %s: %s", item.url, type(exc).__name__)
-                continue
-
-            # Cùng một sản phẩm có thể xuất hiện 2 lần trên một trang (trang tổng hợp, ô quảng cáo):
-            # cùng giây, cùng sản phẩm -> cùng event_id, giữ một bản để không ghi trùng
-            events = list({e.event_id: e for e in platform.parse(raw)}.values())
-            if not events:
-                pages_empty += 1
-                logger.warning("No events from %s (HTTP %s)", item.url, raw.status_code)
-                continue
-            sink.write(events)
-            events_total += len(events)
-            state.upsert_products(
-                platform.name,
-                [(e.product_id, e.url) for e in events if e.event_type == "price"],
-                seen_at=raw.fetched_at,
-                is_hot=True,
-            )
+            count = await crawl_page(platform, ref, sink, state, is_hot=True)
+            events_total += count
+            pages_empty += count == 0
         if pages_empty == len(items):
             # Không trang nào ra dữ liệu: coi là thất bại để dễ thấy khi xem crawl_runs
             status, error = "failed", "no events from any page"

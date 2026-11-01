@@ -162,7 +162,8 @@ bigdata-crawler/
 ├── .gitignore
 ├── config/
 │   ├── platforms.yaml      # cấu hình từng sàn
-│   └── watchlist.csv       # danh sách trang danh sách nhóm hot (sàn, danh mục, sắp xếp, số trang)
+│   ├── watchlist.csv       # danh sách trang danh sách nhóm hot (sàn, danh mục, sắp xếp, số trang)
+│   └── full_categories.csv # danh mục cho crawl_full (mỗi ngày một lần)
 ├── common/
 │   ├── __init__.py
 │   ├── schema.py           # pydantic model cho các loại event
@@ -350,7 +351,7 @@ class Platform(ABC):
 | Tiki | API JSON | Làm trước. Marketplace nên có `seller_id`, cần cho phần phát hiện hàng giả |
 | CellphoneS | JSON-LD (kiểm chứng ở bước 8) | Viết mới |
 | Hoàng Hà Mobile | HTML (kiểm chứng ở bước 8) | Viết mới |
-| FPT Shop | HTML | Làm cuối |
+| FPT Shop | Dữ liệu Next.js nhúng trong HTML + JSON-LD | Viết mới ở bước 9 |
 
 Shopee và Lazada chặn rất gắt (device fingerprint, signed request). **Không đưa vào kế hoạch.** Nếu sau này rảnh thì thử, hỏng thì bỏ, không được để tiến độ phụ thuộc vào hai sàn này.
 

@@ -1,6 +1,7 @@
 # Nhóm theo dõi sát (crawl_hot). Một dòng = một trang danh sách. enabled=0 thì bỏ qua.
 # Hoàng Hà: số trang theo "Xem thêm N sản phẩm" (2026-11-01). CellphoneS: không phân trang, ~20 SP/URL.
 # CellphoneS thiet-bi-am-thanh, phu-kien: tắt vì là trang giới thiệu, không có lưới sản phẩm (chạy thử 2026-11-01).
+# FPT Shop: không phân trang thật, ~24 SP/URL; đường dẫn lấy từ menu của sàn (2026-11-01).
 # Tiki: tắt từ 2026-11-01 vì bị chặn (xem docs/api_limits.md); số trang theo product_count của api/v2/categories.
 platform,category,page,url,enabled
 hoangha,dien-thoai-di-dong,1,https://hoanghamobile.com/dien-thoai-di-dong,1
@@ -83,6 +84,22 @@ cellphones,laptop/hp,,https://cellphones.com.vn/laptop/hp.html,1
 cellphones,laptop/mac/macbook-neo,,https://cellphones.com.vn/laptop/mac/macbook-neo.html,1
 cellphones,thiet-bi-am-thanh,,https://cellphones.com.vn/thiet-bi-am-thanh.html,0
 cellphones,phu-kien,,https://cellphones.com.vn/phu-kien.html,0
+fptshop,dien-thoai,,https://fptshop.com.vn/dien-thoai,1
+fptshop,dien-thoai/apple-iphone,,https://fptshop.com.vn/dien-thoai/apple-iphone,1
+fptshop,dien-thoai/samsung,,https://fptshop.com.vn/dien-thoai/samsung,1
+fptshop,dien-thoai/oppo,,https://fptshop.com.vn/dien-thoai/oppo,1
+fptshop,dien-thoai/xiaomi,,https://fptshop.com.vn/dien-thoai/xiaomi,1
+fptshop,dien-thoai/honor,,https://fptshop.com.vn/dien-thoai/honor,1
+fptshop,dien-thoai/zte,,https://fptshop.com.vn/dien-thoai/zte,1
+fptshop,dien-thoai/dien-thoai-gap,,https://fptshop.com.vn/dien-thoai/dien-thoai-gap,1
+fptshop,dien-thoai/pho-thong,,https://fptshop.com.vn/dien-thoai/pho-thong,1
+fptshop,may-tinh-xach-tay,,https://fptshop.com.vn/may-tinh-xach-tay,1
+fptshop,may-tinh-xach-tay/apple-macbook,,https://fptshop.com.vn/may-tinh-xach-tay/apple-macbook,1
+fptshop,may-tinh-xach-tay/lenovo,,https://fptshop.com.vn/may-tinh-xach-tay/lenovo,1
+fptshop,may-tinh-xach-tay/dell,,https://fptshop.com.vn/may-tinh-xach-tay/dell,1
+fptshop,phu-kien/sac-cap,,https://fptshop.com.vn/phu-kien/sac-cap,1
+fptshop,phu-kien/sac-du-phong,,https://fptshop.com.vn/phu-kien/sac-du-phong,1
+fptshop,phu-kien/tai-nghe-gaming,,https://fptshop.com.vn/phu-kien/tai-nghe-gaming,1
 tiki,1795,1,https://tiki.vn/api/personalish/v1/blocks/listings?limit=40&category=1795&page=1,0
 tiki,1795,2,https://tiki.vn/api/personalish/v1/blocks/listings?limit=40&category=1795&page=2,0
 tiki,1795,3,https://tiki.vn/api/personalish/v1/blocks/listings?limit=40&category=1795&page=3,0

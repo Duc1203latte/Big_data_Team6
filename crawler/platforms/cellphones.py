@@ -38,11 +38,16 @@ from platforms.parsing import (
 logger = logging.getLogger(__name__)
 
 
+BASE_URL = "https://cellphones.com.vn"
+
+
 class CellphonesPlatform(Platform):
     name = "cellphones"
 
-    def discover(self, category: str):
-        raise NotImplementedError("CellphoneS discover is implemented in step 9")
+    async def discover(self, category: str):
+        """CellphoneS không phân trang phía server: mỗi danh mục ("mobile/apple") chỉ có một trang."""
+        yield ProductRef(platform=self.name, kind="listing", url=f"{BASE_URL}/{category}.html",
+                         category=category)
 
     async def fetch(self, ref: ProductRef) -> RawResponse:
         # Cả trang danh sách lẫn chi tiết đều là một trang HTML: ref.url là link trang
