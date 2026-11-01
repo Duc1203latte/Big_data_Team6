@@ -1,5 +1,6 @@
 # Nhóm theo dõi sát (crawl_hot). Một dòng = một trang danh sách. enabled=0 thì bỏ qua.
 # Hoàng Hà: số trang theo "Xem thêm N sản phẩm" (2026-11-01). CellphoneS: không phân trang, ~20 SP/URL.
+# CellphoneS thiet-bi-am-thanh, phu-kien: tắt vì là trang giới thiệu, không có lưới sản phẩm (chạy thử 2026-11-01).
 # Tiki: tắt từ 2026-11-01 vì bị chặn (xem docs/api_limits.md); số trang theo product_count của api/v2/categories.
 platform,category,page,url,enabled
 hoangha,dien-thoai-di-dong,1,https://hoanghamobile.com/dien-thoai-di-dong,1
@@ -80,8 +81,8 @@ cellphones,laptop/acer,,https://cellphones.com.vn/laptop/acer.html,1
 cellphones,laptop/dell,,https://cellphones.com.vn/laptop/dell.html,1
 cellphones,laptop/hp,,https://cellphones.com.vn/laptop/hp.html,1
 cellphones,laptop/mac/macbook-neo,,https://cellphones.com.vn/laptop/mac/macbook-neo.html,1
-cellphones,thiet-bi-am-thanh,,https://cellphones.com.vn/thiet-bi-am-thanh.html,1
-cellphones,phu-kien,,https://cellphones.com.vn/phu-kien.html,1
+cellphones,thiet-bi-am-thanh,,https://cellphones.com.vn/thiet-bi-am-thanh.html,0
+cellphones,phu-kien,,https://cellphones.com.vn/phu-kien.html,0
 tiki,1795,1,https://tiki.vn/api/personalish/v1/blocks/listings?limit=40&category=1795&page=1,0
 tiki,1795,2,https://tiki.vn/api/personalish/v1/blocks/listings?limit=40&category=1795&page=2,0
 tiki,1795,3,https://tiki.vn/api/personalish/v1/blocks/listings?limit=40&category=1795&page=3,0

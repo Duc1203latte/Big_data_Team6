@@ -176,3 +176,21 @@ async def test_loop_repeats_until_stopped_without_duplicate_event_ids(tmp_path, 
     # Hai chu kỳ lệch nhau >= 1 giây nên event_time khác nhau -> event_id không trùng
     assert df["event_id"].is_unique
     assert len(df) == 36
+
+
+@pytest.mark.asyncio
+async def test_duplicate_cards_on_same_page_written_once(tmp_path, state):
+    # Trang tổng hợp lặp lại cùng một thẻ sản phẩm (gặp ở hoanghamobile.com/phu-kien)
+    first_card_start = LISTING_HTML.index('<div class="pj16-item"')
+    second_card_start = LISTING_HTML.index('<div class="pj16-item"', first_card_start + 1)
+    first_card = LISTING_HTML[first_card_start:second_card_start]
+    doubled = LISTING_HTML.replace(first_card, first_card + first_card, 1)
+
+    class DoubledHttp(FakeHttp):
+        async def get(self, url, *, params=None):
+            return httpx.Response(200, html=doubled)
+
+    landing = tmp_path / "landing"
+    count = await run_cycle(hoangha(DoubledHttp()), ITEMS[:1], state, landing)
+    assert count == 18
+    assert read_landing(landing)["event_id"].is_unique

@@ -104,7 +104,9 @@ async def run_cycle(platform: Platform, items: list[WatchItem], state: StateStor
                 logger.warning("Skip %s: %s", item.url, type(exc).__name__)
                 continue
 
-            events = platform.parse(raw)
+            # Cùng một sản phẩm có thể xuất hiện 2 lần trên một trang (trang tổng hợp, ô quảng cáo):
+            # cùng giây, cùng sản phẩm -> cùng event_id, giữ một bản để không ghi trùng
+            events = list({e.event_id: e for e in platform.parse(raw)}.values())
             if not events:
                 pages_empty += 1
                 logger.warning("No events from %s (HTTP %s)", item.url, raw.status_code)
