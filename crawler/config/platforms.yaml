@@ -6,3 +6,14 @@ tiki:
   # Tiki chặn bằng trang HTML kiểm tra chống bot kèm mã 200 (đo ngày 2026-11-01),
   # nên phải coi response không phải JSON là bị chặn.
   expect_json: true
+
+cellphones:
+  # Trang danh mục nặng ~1,7 MB nên để chậm hơn; nhóm hot của CellphoneS chạy chu kỳ 60 phút
+  requests_per_second: 0.1
+  max_concurrency: 1
+  timeout_seconds: 30
+
+hoangha:
+  requests_per_second: 0.2
+  max_concurrency: 1
+  timeout_seconds: 20

@@ -1,0 +1,11 @@
+{
+ "ref": {
+  "platform": "cellphones",
+  "kind": "detail",
+  "url": "https://cellphones.com.vn/iphone-18-pro.html"
+ },
+ "status_code": 200,
+ "body": "<html><head><script type=\"application/ld+json\">{\"@context\": \"https://schema.org\", \"@type\": \"BreadcrumbList\", \"itemListElement\": [{\"@type\": \"ListItem\", \"position\": 1, \"item\": {\"@id\": \"https://cellphones.com.vn/\", \"name\": \"CELLPHONES\"}}, {\"@type\": \"ListItem\", \"position\": 2, \"item\": {\"@id\": \"https://cellphones.com.vn/mobile.html\", \"name\": \"Điện thoại\"}}, {\"@type\": \"ListItem\", \"position\": 3, \"item\": {\"@id\": \"https://cellphones.com.vn/mobile/apple.html\", \"name\": \"Apple\"}}, {\"@type\": \"ListItem\", \"position\": 4, \"item\": {\"@id\": \"https://cellphones.com.vn/mobile/apple/iphone-18.html\", \"name\": \"iPhone 18 Series\"}}, {\"@type\": \"ListItem\", \"position\": 5, \"item\": {\"@id\": \"https://cellphones.com.vn/iphone-18-pro.html\", \"name\": \"iPhone 18 Pro 256GB\"}}]}</script><script type=\"application/ld+json\">{\"@context\": \"https://schema.org/\", \"@type\": \"Product\", \"name\": \"iPhone 18 Pro 256GB\", \"image\": \"https://cdn2.cellphones.com.vn/200x/media/catalog/product/i/p/iphone-18-pro-01.jpg\", \"description\": \"iPhone 18 Pro chính hãng giá 38.99 triệu tại CellphoneS, màn hình 6,3 inch, Chip A20 Pro, đủ màu, thu cũ giảm 5tr | Mua IP 18 pro tại CellphoneS\", \"offers\": {\"@type\": \"Offer\", \"url\": \"https://cellphones.com.vn/iphone-18-pro.html\", \"priceCurrency\": \"VND\", \"itemCondition\": \"https://schema.org/NewCondition\", \"availability\": \"https://schema.org/InStock\", \"seller\": {\"@type\": \"Organization\", \"name\": \"CELLPHONES\"}}, \"sku\": \"iphone-18-pro\", \"mpn\": \"iphone-18-pro\"}</script></head><body></body></html>",
+ "content_type": "text/html; charset=utf-8",
+ "fetched_at": "2026-11-01T14:24:14.502224+00:00"
+}

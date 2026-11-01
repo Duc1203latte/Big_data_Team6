@@ -101,6 +101,7 @@ pydantic==2.*
 pyyaml==6.*
 tenacity==9.*
 orjson==3.*
+beautifulsoup4==4.*
 python-dateutil==2.9.*
 rich==13.*
 pandas==2.*
@@ -170,10 +171,12 @@ bigdata-crawler/
 │   ├── ratelimit.py        # token bucket theo từng sàn
 │   ├── http.py             # httpx client, retry, backoff
 │   ├── state.py            # SQLite: catalog, lần crawl cuối, các đợt chạy
+│   ├── config.py           # đọc .env và platforms.yaml
 │   └── logging_setup.py    # cấu hình log ra console và file
 ├── platforms/
 │   ├── __init__.py
 │   ├── base.py             # lớp trừu tượng Platform
+│   ├── parsing.py          # hàm đọc HTML / JSON-LD dùng chung
 │   ├── tiki.py
 │   ├── cellphones.py
 │   ├── hoangha.py
@@ -336,7 +339,7 @@ class Platform(ABC):
 ### Cách lấy dữ liệu, theo thứ tự ưu tiên
 
 1. **API JSON ẩn** của sàn. Mở trang sản phẩm trên Chrome → DevTools → Network → Fetch/XHR → tìm request trả về JSON chứa giá. Nhanh hơn, nhẹ hơn, không vỡ khi sàn đổi CSS. Tiki có sẵn API kiểu này.
-2. **JSON-LD trong HTML** (`<script type="application/ld+json">`). CellphoneS dùng cách này cho giá và tồn kho. Có repo crawler cũ của mình dùng được luôn, sẽ đưa sau.
+2. **JSON-LD trong HTML** (`<script type="application/ld+json">`). CellphoneS dùng cách này cho giá và tồn kho (cần kiểm chứng ở bước 8).
 3. **Parse HTML tĩnh** bằng selector.
 4. **Playwright**, chỉ khi ba cách trên không được, và phải hỏi mình trước. Với 10.000 SKU mỗi 30 phút thì Playwright toàn bộ sẽ không kịp.
 
@@ -345,8 +348,8 @@ class Platform(ABC):
 | Sàn | Kiểu | Ghi chú |
 | --- | --- | --- |
 | Tiki | API JSON | Làm trước. Marketplace nên có `seller_id`, cần cho phần phát hiện hàng giả |
-| CellphoneS | JSON-LD | Có code cũ, port sang interface này |
-| Hoàng Hà Mobile | HTML | Có code cũ, port sang interface này |
+| CellphoneS | JSON-LD (kiểm chứng ở bước 8) | Viết mới |
+| Hoàng Hà Mobile | HTML (kiểm chứng ở bước 8) | Viết mới |
 | FPT Shop | HTML | Làm cuối |
 
 Shopee và Lazada chặn rất gắt (device fingerprint, signed request). **Không đưa vào kế hoạch.** Nếu sau này rảnh thì thử, hỏng thì bỏ, không được để tiến độ phụ thuộc vào hai sàn này.
@@ -430,8 +433,8 @@ Token bucket theo số đo bước 5. httpx client dùng chung, retry bằng ten
 **Bước 7 — `jobs/crawl_hot.py`**
 Đọc `config/watchlist.csv` (danh sách trang danh sách nhóm hot), crawl vòng tròn mỗi 30 phút, ghi qua `FileSink`, ghi `crawl_runs`, xử lý SIGINT/SIGTERM để đóng file và update trạng thái tử tế. Sau bước này dữ liệu bắt đầu tích lũy, crawler chạy liên tục không dừng nữa.
 
-**Bước 8 — port CellphoneS và Hoàng Hà**
-Đưa 2 crawler cũ vào interface `Platform`. Code cũ dùng Playwright và gọi OpenAI để bóc thông số; ở đây **bỏ phần gọi OpenAI**, giữ thông số thô vào `specs_raw`, để Silver xử lý sau.
+**Bước 8 — CellphoneS và Hoàng Hà**
+Viết mới 2 sàn theo interface `Platform` (không có code cũ). Trước khi viết `parse`, mỗi sàn gọi tay tối đa 5 request để chọn cách lấy dữ liệu theo thứ tự ưu tiên ở mục 6 và lưu fixture. Thông số giữ thô trong `specs_raw`, không gọi LLM.
 
 **Bước 9 — `jobs/crawl_full.py` + FPT Shop**
 `discover` toàn danh mục, cập nhật bảng `catalog`, chạy 1 lần mỗi ngày. Thêm sàn thứ tư.
