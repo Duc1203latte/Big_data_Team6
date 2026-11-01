@@ -1,5 +1,5 @@
 # Danh mục cho crawl_full (mỗi ngày một lần). category: Hoàng Hà/CellphoneS/FPT là đường dẫn,
-# Tiki là id danh mục. Tiki tắt từ 2026-11-01 vì bị chặn. enabled=0 thì bỏ qua.
+# Tiki là id danh mục (bị chặn 2026-11-01, gỡ chặn sau ~1,5 giờ, bật lại). enabled=0 thì bỏ qua.
 platform,category,enabled
 hoangha,dien-thoai-di-dong,1
 hoangha,laptop,1
@@ -207,10 +207,10 @@ tgdd,dtdd-120-hz,1
 tgdd,chuot-may-tinh-chuot-gaming,1
 tgdd,phu-kien-gaming,1
 tgdd,phu-kien-khac,1
-tiki,1795,0
-tiki,1794,0
-tiki,8095,0
-tiki,8039,0
-tiki,8215,0
-tiki,8214,0
-tiki,28670,0
+tiki,1795,1
+tiki,1794,1
+tiki,8095,1
+tiki,8039,1
+tiki,8215,1
+tiki,8214,1
+tiki,28670,1
