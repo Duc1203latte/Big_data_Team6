@@ -70,6 +70,8 @@ class PlatformLimits:
     # Sàn dùng API JSON: response 2xx mà không phải JSON (ví dụ trang kiểm tra chống bot
     # của tường lửa, trả mã 200) bị coi là BỊ CHẶN, xử lý như 403.
     expect_json: bool = False
+    # Chu kỳ crawl nhóm hot (phút). Sàn có trang nặng (CellphoneS) để thưa hơn.
+    hot_cycle_minutes: int = 30
 
 
 def load_platform_limits(path: str | Path = "config/platforms.yaml") -> dict[str, PlatformLimits]:
