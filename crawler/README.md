@@ -187,7 +187,8 @@ bigdata-crawler/
 │   ├── __init__.py
 │   ├── measure_limits.py   # đo giới hạn truy cập từng sàn
 │   ├── crawl_hot.py        # 10.000 SKU mỗi 30 phút
-│   └── crawl_full.py       # 200.000 SKU mỗi ngày
+│   ├── crawl_full.py       # 200.000 SKU mỗi ngày
+│   └── status.py           # xem nhanh tình trạng: event theo sàn, run lỗi, khoảng trống
 ├── tests/
 │   ├── fixtures/           # payload thật lưu lại, mỗi sàn một thư mục
 │   └── test_parse_*.py
