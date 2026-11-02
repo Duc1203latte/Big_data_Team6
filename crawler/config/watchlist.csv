@@ -1,9 +1,8 @@
 # Nhóm theo dõi sát (crawl_hot). Một dòng = một trang danh sách. enabled=0 thì bỏ qua.
-# Hoàng Hà: số trang theo "Xem thêm N sản phẩm" (2026-11-01). CellphoneS: không phân trang, ~20 SP/URL.
+# Hoàng Hà: đổi giao diện đêm 2026-11-01 -> 02 (20 SP/trang); số trang đếm lại bằng page_count ngày 2026-11-02.
 # CellphoneS thiet-bi-am-thanh, phu-kien: tắt vì là trang giới thiệu, không có lưới sản phẩm (chạy thử 2026-11-01).
 # FPT Shop: không phân trang thật, ~24 SP/URL; đường dẫn lấy từ menu của sàn (2026-11-01).
-# Hoàng Hà phụ kiện: số trang đếm bằng discover ngày 2026-11-01.
-# Thế Giới Di Động: không phân trang (?page=2 trùng trang 1), ~20 SP/URL; trang lọc lấy từ menu (2026-11-01).
+# Thế Giới Di Động: không phân trang (?page=2 trùng trang 1), ~20 SP/URL; trang lọc lấy từ menu (2026-11-01). dong-ho: tắt, trang giới thiệu không có danh sách.
 # Tiki: bị chặn 2026-11-01 ~14:20 UTC (sau đợt đo 2 req/s), gỡ chặn ~15:59 UTC. Bật lại dần:
 #   60 trang đầu các danh mục (enabled=1), phần còn lại enabled=0, tăng dần nếu không bị chặn.
 platform,category,page,url,enabled
@@ -17,7 +16,6 @@ hoangha,dien-thoai-di-dong,7,https://hoanghamobile.com/dien-thoai-di-dong?p=7,1
 hoangha,dien-thoai-di-dong,8,https://hoanghamobile.com/dien-thoai-di-dong?p=8,1
 hoangha,dien-thoai-di-dong,9,https://hoanghamobile.com/dien-thoai-di-dong?p=9,1
 hoangha,dien-thoai-di-dong,10,https://hoanghamobile.com/dien-thoai-di-dong?p=10,1
-hoangha,dien-thoai-di-dong,11,https://hoanghamobile.com/dien-thoai-di-dong?p=11,1
 hoangha,laptop,1,https://hoanghamobile.com/laptop,1
 hoangha,laptop,2,https://hoanghamobile.com/laptop?p=2,1
 hoangha,laptop,3,https://hoanghamobile.com/laptop?p=3,1
@@ -29,9 +27,6 @@ hoangha,tablet,2,https://hoanghamobile.com/tablet?p=2,1
 hoangha,tablet,3,https://hoanghamobile.com/tablet?p=3,1
 hoangha,tablet,4,https://hoanghamobile.com/tablet?p=4,1
 hoangha,tablet,5,https://hoanghamobile.com/tablet?p=5,1
-hoangha,tablet,6,https://hoanghamobile.com/tablet?p=6,1
-hoangha,tablet,7,https://hoanghamobile.com/tablet?p=7,1
-hoangha,tablet,8,https://hoanghamobile.com/tablet?p=8,1
 hoangha,dong-ho,1,https://hoanghamobile.com/dong-ho,1
 hoangha,dong-ho,2,https://hoanghamobile.com/dong-ho?p=2,1
 hoangha,dong-ho,3,https://hoanghamobile.com/dong-ho?p=3,1
@@ -66,27 +61,6 @@ hoangha,loa-tai-nghe,17,https://hoanghamobile.com/loa-tai-nghe?p=17,1
 hoangha,loa-tai-nghe,18,https://hoanghamobile.com/loa-tai-nghe?p=18,1
 hoangha,loa-tai-nghe,19,https://hoanghamobile.com/loa-tai-nghe?p=19,1
 hoangha,phu-kien,1,https://hoanghamobile.com/phu-kien,1
-cellphones,mobile,,https://cellphones.com.vn/mobile.html,1
-cellphones,mobile/apple,,https://cellphones.com.vn/mobile/apple.html,1
-cellphones,mobile/apple/iphone-17,,https://cellphones.com.vn/mobile/apple/iphone-17.html,1
-cellphones,mobile/apple/iphone-16,,https://cellphones.com.vn/mobile/apple/iphone-16.html,1
-cellphones,mobile/samsung,,https://cellphones.com.vn/mobile/samsung.html,1
-cellphones,mobile/xiaomi,,https://cellphones.com.vn/mobile/xiaomi.html,1
-cellphones,mobile/xiaomi/redmi/note-17-series,,https://cellphones.com.vn/mobile/xiaomi/redmi/note-17-series.html,1
-cellphones,mobile/oppo,,https://cellphones.com.vn/mobile/oppo.html,1
-cellphones,mobile/dien-thoai-gaming,,https://cellphones.com.vn/mobile/dien-thoai-gaming.html,1
-cellphones,mobile/dien-thoai-pin-trau,,https://cellphones.com.vn/mobile/dien-thoai-pin-trau.html,1
-cellphones,mobile/dien-thoai-chup-anh-quay-phim,,https://cellphones.com.vn/mobile/dien-thoai-chup-anh-quay-phim.html,1
-cellphones,mobile/ai,,https://cellphones.com.vn/mobile/ai.html,1
-cellphones,mobile/dien-thoai-pho-thong,,https://cellphones.com.vn/mobile/dien-thoai-pho-thong.html,1
-cellphones,tablet,,https://cellphones.com.vn/tablet.html,1
-cellphones,laptop,,https://cellphones.com.vn/laptop.html,1
-cellphones,laptop/acer,,https://cellphones.com.vn/laptop/acer.html,1
-cellphones,laptop/dell,,https://cellphones.com.vn/laptop/dell.html,1
-cellphones,laptop/hp,,https://cellphones.com.vn/laptop/hp.html,1
-cellphones,laptop/mac/macbook-neo,,https://cellphones.com.vn/laptop/mac/macbook-neo.html,1
-cellphones,thiet-bi-am-thanh,,https://cellphones.com.vn/thiet-bi-am-thanh.html,0
-cellphones,phu-kien,,https://cellphones.com.vn/phu-kien.html,0
 hoangha,phu-kien/phu-kien-dien-thoai,1,https://hoanghamobile.com/phu-kien/phu-kien-dien-thoai,1
 hoangha,phu-kien/phu-kien-dien-thoai,2,https://hoanghamobile.com/phu-kien/phu-kien-dien-thoai?p=2,1
 hoangha,phu-kien/phu-kien-dien-thoai,3,https://hoanghamobile.com/phu-kien/phu-kien-dien-thoai?p=3,1
@@ -144,6 +118,27 @@ hoangha,phu-kien/nhan-thong-minh,1,https://hoanghamobile.com/phu-kien/nhan-thong
 hoangha,phu-kien/thiet-bi-mang,1,https://hoanghamobile.com/phu-kien/thiet-bi-mang,1
 hoangha,phu-kien/thiet-bi-mang,2,https://hoanghamobile.com/phu-kien/thiet-bi-mang?p=2,1
 hoangha,phu-kien/thiet-bi-mang,3,https://hoanghamobile.com/phu-kien/thiet-bi-mang?p=3,1
+cellphones,mobile,,https://cellphones.com.vn/mobile.html,1
+cellphones,mobile/apple,,https://cellphones.com.vn/mobile/apple.html,1
+cellphones,mobile/apple/iphone-17,,https://cellphones.com.vn/mobile/apple/iphone-17.html,1
+cellphones,mobile/apple/iphone-16,,https://cellphones.com.vn/mobile/apple/iphone-16.html,1
+cellphones,mobile/samsung,,https://cellphones.com.vn/mobile/samsung.html,1
+cellphones,mobile/xiaomi,,https://cellphones.com.vn/mobile/xiaomi.html,1
+cellphones,mobile/xiaomi/redmi/note-17-series,,https://cellphones.com.vn/mobile/xiaomi/redmi/note-17-series.html,1
+cellphones,mobile/oppo,,https://cellphones.com.vn/mobile/oppo.html,1
+cellphones,mobile/dien-thoai-gaming,,https://cellphones.com.vn/mobile/dien-thoai-gaming.html,1
+cellphones,mobile/dien-thoai-pin-trau,,https://cellphones.com.vn/mobile/dien-thoai-pin-trau.html,1
+cellphones,mobile/dien-thoai-chup-anh-quay-phim,,https://cellphones.com.vn/mobile/dien-thoai-chup-anh-quay-phim.html,1
+cellphones,mobile/ai,,https://cellphones.com.vn/mobile/ai.html,1
+cellphones,mobile/dien-thoai-pho-thong,,https://cellphones.com.vn/mobile/dien-thoai-pho-thong.html,1
+cellphones,tablet,,https://cellphones.com.vn/tablet.html,1
+cellphones,laptop,,https://cellphones.com.vn/laptop.html,1
+cellphones,laptop/acer,,https://cellphones.com.vn/laptop/acer.html,1
+cellphones,laptop/dell,,https://cellphones.com.vn/laptop/dell.html,1
+cellphones,laptop/hp,,https://cellphones.com.vn/laptop/hp.html,1
+cellphones,laptop/mac/macbook-neo,,https://cellphones.com.vn/laptop/mac/macbook-neo.html,1
+cellphones,thiet-bi-am-thanh,,https://cellphones.com.vn/thiet-bi-am-thanh.html,0
+cellphones,phu-kien,,https://cellphones.com.vn/phu-kien.html,0
 fptshop,dien-thoai,,https://fptshop.com.vn/dien-thoai,1
 fptshop,dien-thoai/apple-iphone,,https://fptshop.com.vn/dien-thoai/apple-iphone,1
 fptshop,dien-thoai/iphone-17-series,,https://fptshop.com.vn/dien-thoai/iphone-17-series,1
@@ -209,7 +204,7 @@ tgdd,laptop,,https://www.thegioididong.com/laptop,1
 tgdd,laptop-apple-macbook,,https://www.thegioididong.com/laptop-apple-macbook,1
 tgdd,may-tinh-bang,,https://www.thegioididong.com/may-tinh-bang,1
 tgdd,may-tinh-bang-apple-ipad,,https://www.thegioididong.com/may-tinh-bang-apple-ipad,1
-tgdd,dong-ho,,https://www.thegioididong.com/dong-ho,1
+tgdd,dong-ho,,https://www.thegioididong.com/dong-ho,0
 tgdd,dong-ho-thong-minh-apple,,https://www.thegioididong.com/dong-ho-thong-minh-apple,1
 tgdd,tai-nghe,,https://www.thegioididong.com/tai-nghe,1
 tgdd,tai-nghe-apple-airpods,,https://www.thegioididong.com/tai-nghe-apple-airpods,1

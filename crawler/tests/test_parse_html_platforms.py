@@ -8,7 +8,7 @@ from bs4 import BeautifulSoup
 
 from common.schema import PriceEvent, ProductEvent, ProductRef, RawResponse
 from platforms.cellphones import CellphonesPlatform
-from platforms.hoangha import HoanghaPlatform
+from platforms.hoangha import HoanghaPlatform, page_count
 from platforms.parsing import availability_to_bool, json_ld, parse_vnd, slug_from_url
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -215,3 +215,45 @@ async def test_fetch_uses_ref_url():
         raw = await cls(http=http, crawler_version="0.1.0").fetch(ref)
         assert raw.status_code == 200 and raw.fetched_at.tzinfo is not None
     assert http.urls == ["https://example.com/cellphones", "https://example.com/hoangha"]
+
+
+# ------------------------------ Hoàng Hà giao diện mới (2026-11-02) ------------------------------
+
+def test_hoangha_v2_listing(hoangha):
+    raw = load("hoangha", "listing_dien_thoai_p1_v2.json")
+    events = hoangha.parse(raw)
+    assert len(events) == 20
+    first = events[0]
+    assert first.product_id == "iphone-18-pro-max"
+    assert first.sku_id == "MJXN4X"
+    assert first.url == "https://hoanghamobile.com/dien-thoai/iphone-18-pro-max"
+    assert first.name_raw == "iPhone 18 Pro Max 256GB"
+    assert first.price_current == 41_490_000 and first.price_current_raw == "41.490.000"
+    assert first.price_original is None                        # thẻ giá gốc rỗng khi không giảm
+    assert first.in_stock is True and first.stock_status_raw == "Sẵn hàng"
+
+
+def test_hoangha_v2_listing_discount_and_contact(hoangha):
+    events = hoangha.parse(load("hoangha", "listing_dien_thoai_p1_v2.json"))
+    discounted = [e for e in events if e.price_original is not None]
+    assert len(discounted) >= 10
+    assert any(e.price_original > e.price_current for e in discounted)
+    contact = [e for e in events if e.stock_status_raw == "Liên hệ"]
+    assert contact and all(e.in_stock is None for e in contact)
+
+
+def test_hoangha_v2_page_count():
+    body = load("hoangha", "listing_dien_thoai_p1_v2.json").body
+    assert page_count(BeautifulSoup(body, "html.parser")) == 10     # 20 thẻ + "Xem thêm 171 sản phẩm"
+
+
+def test_hoangha_v2_detail(hoangha):
+    product, prices = split(hoangha.parse(load("hoangha", "detail_normal_v2.json")))
+    assert product.product_id == "iphone-18-pro-max"
+    assert product.category_raw == "Điện thoại > Apple > iPhone 18 Series & iPhone Duo"
+    # 27 dòng, 26 tên khác nhau (sàn lặp một dòng), dict giữ một bản
+    assert len(product.specs_raw) == 26 and product.specs_raw["Bộ nhớ trong"] == "256 GB"
+    assert product.rating_avg == 4.6 and product.rating_count == 21
+    assert prices[0].sku_id == "MJXN4X" and prices[0].price_current == 41_490_000
+    assert prices[0].price_current_raw == "lowPrice=41490000.0;highPrice=41990000.0"   # AggregateOffer
+    assert prices[0].in_stock is True
