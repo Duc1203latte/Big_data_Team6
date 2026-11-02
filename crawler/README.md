@@ -1,23 +1,10 @@
 # Crawler đa sàn TMĐT — Giai đoạn 1 của dự án Lưu trữ và Xử lý Dữ liệu lớn
 
-Tài liệu này là spec cho phần crawler. Dành cho Claude Code đọc trước khi làm bất cứ việc gì trong repo này.
+Tài liệu này là spec cho phần crawler: kiến trúc, schema sự kiện, cách chạy và chính sách crawl.
 
 ---
 
-## QUY TẮC LÀM VIỆC (đọc trước, không được bỏ qua)
-
-**KHÔNG ĐƯỢC TỰ Ý VIẾT CODE KHI CHƯA ĐƯỢC YÊU CẦU.**
-
-Cụ thể:
-
-- Mỗi lần chỉ làm đúng một bước mà mình chỉ định. Làm xong thì dừng, báo cáo, chờ lệnh tiếp.
-- Không tự nhảy sang bước sau trong mục "Thứ tự thực hiện" dù thấy bước đó hiển nhiên phải làm.
-- Không tự tạo file, không tự cài thêm thư viện, không tự refactor code đã chạy được, không tự sửa file ngoài phạm vi bước đang làm.
-- Không tự chạy crawler thật khi chưa được cho phép. Test thì dùng fixture offline hoặc tối đa 5 request.
-- Trước khi code, nếu thấy spec thiếu hoặc mâu thuẫn thì hỏi lại, đừng tự suy diễn rồi làm.
-- Nếu trong lúc làm phát hiện cách tốt hơn spec, nói ra trước, chờ mình đồng ý, không tự đổi.
-
-Cách làm việc mong muốn: mình nói "làm bước N", Claude Code đọc spec bước đó, hỏi lại nếu cần, viết code, chạy test, báo kết quả, dừng.
+## Quy ước code
 
 **Yêu cầu về code:** comment chi tiết bằng tiếng Việt. Tên biến, tên hàm, log message bằng tiếng Anh.
 
@@ -454,15 +441,3 @@ Bước 8 và 9 làm song song trong lúc crawler đã chạy, không cần ch�
 - [ ] `docs/api_limits.md` có số đo thật của từng sàn
 - [ ] Bảng `crawl_runs` ghi đúng mỗi lần bật tắt
 - [ ] Crawler chạy liên tục trong tmux, dữ liệu vào `landing/` theo đúng partition
-
-## 10. Những điều không được làm
-
-- Không tự ý code khi chưa được yêu cầu (nhắc lại lần nữa cho chắc)
-- Không sửa hay xoá file đã có trong `landing/`
-- Không tính toán phái sinh trong crawler (`discount_pct`, chuẩn hoá tên, match sản phẩm giữa sàn)
-- Không gọi LLM/OpenAI trong luồng crawl
-- Không tăng rate limit để chạy nhanh hơn
-- Không lách chống bot
-- Không cài thêm thư viện ngoài `requirements.txt` mà chưa hỏi
-- Không dùng `uuid4` cho `event_id`
-- Không commit `landing/`, `state/`, `logs/`, `.env`
