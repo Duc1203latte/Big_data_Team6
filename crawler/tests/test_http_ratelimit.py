@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from common.config import PlatformLimits, load_platform_limits
-from common.http import HttpClient, PlatformBlocked, RobotsDisallowed
+from common.http import HttpClient, PlatformBlocked, RetryableStatus, RobotsDisallowed, describe_error
 from common.ratelimit import TokenBucket
 
 UA = "bigdata-crawler/0.1.0 (academic research project; contact: a@b.c)"
@@ -32,6 +32,15 @@ def test_token_bucket_slow_down_halves_with_floor():
     for _ in range(10):
         bucket.slow_down()
     assert bucket.rate == pytest.approx(0.2 / 16)     # không thấp hơn mức sàn
+
+
+def test_token_bucket_slow_down_at_floor_logs_once(caplog):
+    bucket = TokenBucket(rate=0.2)
+    with caplog.at_level("WARNING", logger="common.ratelimit"):
+        for _ in range(10):
+            bucket.slow_down()
+    # 0,2 -> 0,1 -> 0,05 -> 0,025 -> 0,0125 (sàn): 4 lần giảm thật, 6 lần sau không log
+    assert len([r for r in caplog.records if "Rate reduced" in r.message]) == 4
 
 
 def test_token_bucket_recovers_to_base_rate():
@@ -96,6 +105,9 @@ class Server:
         status = self.statuses.pop(0) if len(self.statuses) > 1 else self.statuses[0]
         if status == 0:
             raise httpx.ConnectError("connection refused", request=request)
+        if status == -2:
+            # httpx thật ném ReadTimeout với nội dung rỗng, giống log tgdd 2026-11-02
+            raise httpx.ReadTimeout("", request=request)
         return httpx.Response(status, json={"ok": status == 200})
 
 
@@ -264,3 +276,54 @@ async def test_html_allowed_when_not_expecting_json():
 
 def test_repo_tiki_expects_json():
     assert load_platform_limits("config/platforms.yaml")["tiki"].expect_json is True
+
+
+# ------------------------------ timeout và log lỗi ------------------------------
+
+@pytest.mark.asyncio
+async def test_timeout_retried_and_slows_down():
+    server = Server([-2, 200])
+    async with make_client(server) as client:
+        assert (await client.get("https://tiki.vn/x")).status_code == 200
+        assert len(server.requests) == 2
+        # 1000 -> 500 khi timeout, rồi tăng 5% khi thành công (giống 429)
+        assert client.bucket.rate == pytest.approx(525)
+
+
+@pytest.mark.asyncio
+async def test_connect_error_does_not_slow_down():
+    server = Server([0, 200])
+    async with make_client(server) as client:
+        await client.get("https://tiki.vn/x")
+        assert client.bucket.rate == pytest.approx(1000)     # lỗi mạng khác: chỉ thử lại
+
+
+@pytest.mark.asyncio
+async def test_repeated_timeouts_do_not_stop_platform():
+    # Mất mạng / sàn treo lâu: hết lượt thử thì ném lỗi cho trang đó, KHÔNG PlatformBlocked
+    server = Server([-2])
+    async with make_client(server, max_attempts=3, max_consecutive_blocks=1) as client:
+        for _ in range(3):
+            with pytest.raises(httpx.ReadTimeout):
+                await client.get("https://tiki.vn/x")
+        assert client._consecutive_blocks == 0
+
+
+@pytest.mark.asyncio
+async def test_retry_log_names_the_error(caplog):
+    server = Server([-2, 503, 200])
+    async with make_client(server) as client:
+        with caplog.at_level("WARNING", logger="common.http"):
+            await client.get("https://tiki.vn/x")
+    retries = [r.message for r in caplog.records if " retry " in r.message]
+    assert retries[0].endswith("after ReadTimeout")
+    assert retries[1].endswith("after HTTP 503")
+
+
+def test_describe_error():
+    request = httpx.Request("GET", "https://tiki.vn/x")
+    assert describe_error(httpx.ReadTimeout("", request=request)) == "ReadTimeout"
+    assert describe_error(httpx.ConnectError("connection refused", request=request)) == \
+        "ConnectError: connection refused"
+    assert describe_error(RetryableStatus(httpx.Response(503))) == "HTTP 503"
+    assert describe_error(None) == "unknown error"

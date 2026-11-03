@@ -5,7 +5,11 @@ Mỗi sàn một HttpClient, gồm:
 - User-Agent học thuật kèm email, timeout.
 - Đọc robots.txt của từng host một lần, URL bị Disallow thì không gọi.
 - Retry bằng tenacity, backoff theo số mũ 5s, 10s, 20s, 40s... tối đa 5 phút:
-  * lỗi mạng / timeout, 5xx: thử lại
+  * lỗi mạng, 5xx: thử lại
+  * timeout (kết nối hoặc đọc): thử lại VÀ giảm tốc như 429. Sàn quá tải thường không
+    trả 429 mà để kết nối treo tới hết timeout (tgdd khi crawl_full chạy song song,
+    2026-11-02), nên coi timeout là tín hiệu "đang gửi quá nhanh". Không tính vào
+    số lần bị chặn liên tiếp: mất mạng thì không được dừng cả sàn.
   * 429 / 403: thử lại VÀ giảm tốc độ của sàn còn một nửa (thành công thì tăng dần lại)
   * "chặn mềm": sàn khai báo expect_json mà trả 2xx không phải JSON (trang kiểm tra
     chống bot, Tiki trả mã 200 kèm HTML): xử lý y như 403
@@ -50,6 +54,21 @@ def looks_like_json(response: httpx.Response) -> bool:
 def is_soft_block(response: httpx.Response, expect_json: bool) -> bool:
     """Chặn mềm: mã 2xx nhưng nội dung không phải JSON ở sàn đáng lẽ trả JSON."""
     return expect_json and 200 <= response.status_code < 300 and not looks_like_json(response)
+
+
+def describe_error(exc: BaseException | None) -> str:
+    """Tên lỗi kèm nội dung để ghi log, ví dụ "ReadTimeout" hoặc "HTTP 503".
+
+    Nhiều lỗi của httpx (ReadTimeout, ConnectTimeout...) có nội dung rỗng, in thẳng
+    exc ra thì dòng log bị cụt ("retry 1/6 in 5s after "), không biết lỗi gì.
+    RetryableStatus đã có nội dung "HTTP xxx" rõ ràng nên giữ nguyên.
+    """
+    if exc is None:
+        return "unknown error"
+    if isinstance(exc, RetryableStatus):
+        return str(exc)
+    message = str(exc)
+    return f"{type(exc).__name__}: {message}" if message else type(exc).__name__
 
 
 class PlatformBlocked(Exception):
@@ -144,7 +163,12 @@ class HttpClient:
         """Một lần gửi: xin token của sàn rồi gọi mạng, giới hạn số request song song."""
         async with self._semaphore:
             await self.bucket.acquire()
-            return await self._client.get(url, params=params)
+            try:
+                return await self._client.get(url, params=params)
+            except httpx.TimeoutException:
+                # Sàn trả lời không kịp: giảm tốc rồi ném tiếp cho tenacity thử lại
+                self.bucket.slow_down()
+                raise
 
     def _check_status(self, response: httpx.Response) -> None:
         """Phân loại mã trả về; mã cần thử lại thì ném RetryableStatus cho tenacity."""
@@ -179,7 +203,7 @@ class HttpClient:
         logger.warning(
             "%s retry %d/%d in %.0fs after %s",
             self.platform, state.attempt_number, self.max_attempts,
-            state.next_action.sleep if state.next_action else 0, exc,
+            state.next_action.sleep if state.next_action else 0, describe_error(exc),
         )
 
     async def _allowed_by_robots(self, url: str) -> bool:

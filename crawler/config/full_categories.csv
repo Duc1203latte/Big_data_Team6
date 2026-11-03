@@ -1,5 +1,6 @@
 # Danh mục cho crawl_full (mỗi ngày một lần). category: Hoàng Hà/CellphoneS/FPT là đường dẫn,
 # Tiki là id danh mục (bị chặn 2026-11-01, gỡ chặn sau ~1,5 giờ, bật lại). enabled=0 thì bỏ qua.
+# tgdd dong-ho: tắt (2026-11-03), trang giới thiệu không có danh sách sản phẩm, đêm nào cũng rỗng.
 platform,category,enabled
 hoangha,dien-thoai-di-dong,1
 hoangha,laptop,1
@@ -166,7 +167,7 @@ tgdd,laptop,1
 tgdd,laptop-apple-macbook,1
 tgdd,may-tinh-bang,1
 tgdd,may-tinh-bang-apple-ipad,1
-tgdd,dong-ho,1
+tgdd,dong-ho,0
 tgdd,dong-ho-thong-minh-apple,1
 tgdd,tai-nghe,1
 tgdd,tai-nghe-apple-airpods,1

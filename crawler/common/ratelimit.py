@@ -4,9 +4,9 @@ Mỗi sàn một bucket. Bucket nạp `rate` token mỗi giây, chứa tối đa
 token; mỗi request tiêu 1 token, hết token thì chờ. capacity = 1 nghĩa là
 không cho dồn request thành loạt (burst): các request luôn cách đều nhau.
 
-Gặp 429/403 thì slow_down() giảm tốc một nửa; mỗi request thành công thì
-recover() tăng lại 5%, tối đa về tốc độ gốc. Không có recover() thì vài lần
-429 là crawler kẹt ở tốc độ sàn mãi mãi.
+Gặp 429/403 (hoặc timeout, xem common/http.py) thì slow_down() giảm tốc một
+nửa; mỗi request thành công thì recover() tăng lại 5%, tối đa về tốc độ gốc.
+Không có recover() thì vài lần 429 là crawler kẹt ở tốc độ sàn mãi mãi.
 """
 
 import asyncio
@@ -47,10 +47,12 @@ class TokenBucket:
                 await asyncio.sleep((1 - self._tokens) / self.rate)
 
     def slow_down(self, factor: float = 0.5) -> None:
-        """Giảm tốc khi sàn trả 429/403 (mặc định còn một nửa)."""
+        """Giảm tốc khi sàn trả 429/403 hoặc timeout (mặc định còn một nửa)."""
         old = self.rate
         self.rate = max(self.min_rate, self.rate * factor)
-        logger.warning("Rate reduced from %.3f to %.3f req/s", old, self.rate)
+        # Đã ở mức sàn thì tốc độ không đổi: không log nữa cho đỡ rác log
+        if self.rate < old:
+            logger.warning("Rate reduced from %.3f to %.3f req/s", old, self.rate)
 
     def recover(self, factor: float = 1.05) -> None:
         """Request thành công: tăng tốc dần trở lại, không vượt tốc độ gốc."""
