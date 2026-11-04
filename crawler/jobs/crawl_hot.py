@@ -89,8 +89,8 @@ async def crawl_page(platform: Platform, ref: ProductRef, sink: FileSink, state:
     """
     try:
         raw = await platform.fetch(ref)
-    except RobotsDisallowed:
-        logger.warning("Skip %s: disallowed by robots.txt", ref.url)
+    except RobotsDisallowed as exc:
+        logger.warning("Skip %s: %s", ref.url, exc)
         return 0
     except httpx.HTTPError as exc:
         logger.warning("Skip %s: %s", ref.url, type(exc).__name__)
