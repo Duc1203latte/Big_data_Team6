@@ -43,3 +43,15 @@ tgdd:
   max_details_per_run: 150
   max_concurrency: 1
   timeout_seconds: 30
+
+lazada:
+  # Chậm hơn các sàn khác: mỗi request cách nhau ~15 giây, mỗi ngày 4 vòng khi chạy thử.
+  # Trang có script chống bot, nên chỉ tăng dần sau khi đã chạy ổn định.
+  requests_per_second: 0.066
+  hot_cycle_minutes: 360
+  max_concurrency: 1
+  timeout_seconds: 30
+  # Lazada trả JSON khi thêm ajax=true: nhận về HTML nghĩa là bị chặn
+  expect_json: true
+  # Bị chặn lần đầu là dừng hẳn, không thử lại. Nội dung trả về được lưu ở logs/blocked/
+  stop_on_first_block: true

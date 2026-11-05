@@ -1,0 +1,13 @@
+{
+ "ref": {
+  "platform": "lazada",
+  "kind": "listing",
+  "url": "https://www.lazada.vn/pin-sac-du-phong/?ajax=true&page=1",
+  "category": "pin-sac-du-phong",
+  "page": 1
+ },
+ "status_code": 200,
+ "body": "{\"templates\": [], \"mods\": {\"listItems\": [{\"itemId\": \"1001\", \"skuId\": \"2001\", \"sku\": \"1001_VNAMZ\", \"name\": \"Sac du phong mau 1 10000mAh\", \"itemUrl\": \"//www.lazada.vn/products/pdp-i1001.html\", \"image\": \"https://img.example/1.jpg\", \"price\": \"250000\", \"priceShow\": \"₫250,000\", \"originalPriceShow\": \"₫399,000\", \"inStock\": true, \"sellerId\": \"900\", \"sellerName\": \"Shop Mau\", \"brandName\": \"No Brand\", \"brandId\": \"1\", \"categories\": [1, 2, 3], \"location\": \"Overseas\", \"ratingScore\": \"4.5\", \"review\": \"12\", \"itemSoldCntShow\": \"5.3K sold\"}, {\"itemId\": \"1002\", \"skuId\": \"2002\", \"sku\": \"1002_VNAMZ\", \"name\": \"&lt; Chinh hang &gt; Cap sac\", \"itemUrl\": \"//www.lazada.vn/products/pdp-i1002.html\", \"image\": \"https://img.example/2.jpg\", \"price\": \"250000\", \"priceShow\": \"₫250,000\", \"originalPriceShow\": \"3.328.000 ₫\", \"inStock\": false, \"sellerId\": \"900\", \"sellerName\": \"Shop Mau\", \"brandName\": \"No Brand\", \"brandId\": \"1\", \"categories\": [1, 2, 3], \"location\": \"Overseas\", \"ratingScore\": \"4.5\", \"review\": \"12\", \"itemSoldCntShow\": \"4.2K Đã bán\"}, {\"itemId\": \"1003\", \"skuId\": \"2003\", \"sku\": \"1003_VNAMZ\", \"name\": \"Sac du phong mau 3 10000mAh\", \"itemUrl\": \"//www.lazada.vn/products/pdp-i1003.html\", \"image\": \"https://img.example/3.jpg\", \"originalPriceShow\": \"\", \"inStock\": true, \"sellerId\": \"900\", \"brandId\": \"1\", \"categories\": [1, 2, 3], \"location\": \"Overseas\", \"ratingScore\": \"\", \"review\": \"\"}, {\"itemId\": \"1004\", \"skuId\": \"2004\", \"sku\": \"1004_VNAMZ\", \"itemUrl\": \"//www.lazada.vn/products/pdp-i1004.html\", \"image\": \"https://img.example/4.jpg\", \"price\": \"250000\", \"priceShow\": \"₫250,000\", \"originalPriceShow\": \"₫399,000\", \"inStock\": true, \"sellerId\": \"900\", \"sellerName\": \"Shop Mau\", \"brandName\": \"No Brand\", \"brandId\": \"1\", \"categories\": [1, 2, 3], \"location\": \"Overseas\", \"ratingScore\": \"4.5\", \"review\": \"12\", \"itemSoldCntShow\": \"5.3K sold\"}]}, \"mainInfo\": {\"page\": \"1\", \"pageSize\": \"40\", \"totalResults\": \"4\"}}",
+ "content_type": "application/json; charset=utf-8",
+ "fetched_at": "2026-11-04T12:00:00.500000Z"
+}

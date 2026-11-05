@@ -100,7 +100,7 @@ def test_fpt_page_without_data(fpt):
 
 
 def test_registry_has_all_platforms():
-    assert set(PLATFORM_CLASSES) == {"tiki", "cellphones", "hoangha", "fptshop", "tgdd"}
+    assert set(PLATFORM_CLASSES) == {"tiki", "cellphones", "hoangha", "fptshop", "tgdd", "lazada"}
 
 
 # ------------------------------ discover ------------------------------
