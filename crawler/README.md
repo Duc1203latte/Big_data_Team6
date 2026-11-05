@@ -169,7 +169,8 @@ bigdata-crawler/
 │   ├── cellphones.py
 │   ├── hoangha.py
 │   ├── fptshop.py
-│   └── tgdd.py             # Thế Giới Di Động (thêm sau, sàn thứ 5)
+│   ├── tgdd.py             # Thế Giới Di Động (thêm sau, sàn thứ 5)
+│   └── lazada.py           # Lazada (sàn thứ 6, marketplace)
 ├── jobs/
 │   ├── __init__.py
 │   ├── measure_limits.py   # đo giới hạn truy cập từng sàn
@@ -342,8 +343,9 @@ class Platform(ABC):
 | Hoàng Hà Mobile | HTML (kiểm chứng ở bước 8) | Viết mới |
 | FPT Shop | Dữ liệu Next.js nhúng trong HTML + JSON-LD | Viết mới ở bước 9 |
 | Thế Giới Di Động | Dữ liệu Next.js nhúng trong HTML + JSON-LD (ProductGroup) | Thêm sau bước 9 để tăng khối lượng |
+| Lazada | JSON của trang danh sách (`?ajax=true`) | Thêm ngày 04/11 sau khi giảng viên đồng ý. Marketplace, có `seller_id`. Terms of Use hạn chế lưu nội dung: chỉ dùng nội bộ, không công bố, tốc độ rất thấp |
 
-Shopee và Lazada chặn rất gắt (device fingerprint, signed request). **Không đưa vào kế hoạch.** Nếu sau này rảnh thì thử, hỏng thì bỏ, không được để tiến độ phụ thuộc vào hai sàn này.
+Shopee **không crawl**: Điều Khoản Dịch Vụ cấm dùng robot, spider, thiết bị tự động để thu thập nội dung khi chưa có đồng ý bằng văn bản (kiểm tra ngày 04/11). Lazada có thể chặn bất cứ lúc nào, không được để tiến độ phụ thuộc vào sàn này.
 
 ## 7. Chính sách crawl
 

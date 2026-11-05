@@ -12,6 +12,8 @@ Mỗi sàn một HttpClient, gồm:
   * "chặn mềm": sàn khai báo expect_json mà trả 2xx không phải JSON (trang kiểm tra
     chống bot, Tiki trả mã 200 kèm HTML): xử lý y như 403
   * 403 / chặn mềm liên tục quá 10 lần: ném PlatformBlocked để job dừng sàn đó
+  * sàn khai báo stop_on_first_block: dừng ngay ở lần bị chặn đầu tiên và lưu nội dung
+    response vào logs/blocked/ để biết sàn đã trả về gì
   * mã khác (200, 404...): trả về ngay
 Hết số lần thử mà vẫn bị chặn hoặc 5xx thì trả response cuối cho parse() tự bỏ qua.
 
@@ -22,6 +24,8 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -44,6 +48,22 @@ BLOCK_STATUSES = {403, 429}
 SERVER_ERROR_STATUSES = {500, 502, 503, 504}
 # Bị từ chối đọc robots.txt khác với không có file, nên không coi là được phép
 ROBOTS_REFUSED_STATUSES = {401, 403, 429}
+# Nơi lưu response bị chặn để điều tra. Thư mục logs/ không commit
+BLOCK_SAMPLE_DIR = Path("logs/blocked")
+BLOCK_SAMPLE_MAX_CHARS = 256_000
+
+
+def save_block_sample(platform: str, url: Any, status: int, body: str) -> Path | None:
+    """Lưu response bị chặn ra file. Không ghi được thì chỉ log, không làm hỏng việc dừng sàn."""
+    now = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    path = BLOCK_SAMPLE_DIR / f"{platform}-{now}.txt"
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"URL: {url}\nHTTP: {status}\n\n{body[:BLOCK_SAMPLE_MAX_CHARS]}", encoding="utf-8")
+    except OSError as exc:
+        logger.warning("Cannot save block sample: %s", exc)
+        return None
+    return path
 
 
 def looks_like_json(response: httpx.Response) -> bool:
@@ -104,6 +124,7 @@ class HttpClient:
         self.platform = platform
         self.user_agent = user_agent
         self.expect_json = limits.expect_json
+        self.stop_on_first_block = limits.stop_on_first_block
         self.bucket = TokenBucket(limits.requests_per_second)
         self._semaphore = asyncio.Semaphore(limits.max_concurrency)
         self.max_attempts = max_attempts
@@ -172,6 +193,13 @@ class HttpClient:
         """Phân loại mã trả về; mã cần thử lại thì ném RetryableStatus cho tenacity."""
         status = response.status_code
         soft_block = is_soft_block(response, self.expect_json)
+        if self.stop_on_first_block and (status in BLOCK_STATUSES or soft_block):
+            sample = save_block_sample(self.platform, response.request.url, status, response.text)
+            raise PlatformBlocked(
+                f"{self.platform}: blocked at {response.request.url} "
+                f"(HTTP {status}, {response.headers.get('content-type', 'no content-type')}), "
+                f"stopping, response saved to {sample}"
+            )
         if status == 403 or soft_block:
             self._consecutive_blocks += 1
             if self._consecutive_blocks > self.max_consecutive_blocks:

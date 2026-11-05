@@ -264,3 +264,88 @@ async def test_html_allowed_when_not_expecting_json():
 
 def test_repo_tiki_expects_json():
     assert load_platform_limits("config/platforms.yaml")["tiki"].expect_json is True
+
+
+# ------------------------------ stop_on_first_block ------------------------------
+
+def make_stop_client(handler, *, stop: bool = True) -> HttpClient:
+    return HttpClient(
+        "lazada",
+        PlatformLimits(requests_per_second=1000, max_concurrency=1, timeout_seconds=5,
+                       expect_json=True, stop_on_first_block=stop),
+        UA,
+        transport=httpx.MockTransport(handler),
+        max_attempts=4, backoff_base=0.001, backoff_max=0.01,
+    )
+
+
+class BlockingSite:
+    """robots.txt bình thường; mọi trang khác trả `response`, đếm số request nhận được."""
+
+    def __init__(self, response: httpx.Response):
+        self.response = response
+        self.pages = 0
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/robots.txt":
+            return httpx.Response(200, text=ROBOTS)
+        self.pages += 1
+        return self.response
+
+
+HTML_CHALLENGE = dict(text="<html>verify you are human</html>", headers={"content-type": "text/html"})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("response", [
+    httpx.Response(200, **HTML_CHALLENGE),
+    httpx.Response(403, json={}),
+    httpx.Response(429, json={}),
+])
+async def test_stop_on_first_block_sends_only_one_request(response, tmp_path, monkeypatch):
+    monkeypatch.setattr("common.http.BLOCK_SAMPLE_DIR", tmp_path)
+    site = BlockingSite(response)
+    async with make_stop_client(site) as client:
+        rate = client.bucket.rate
+        with pytest.raises(PlatformBlocked):
+            await client.get("https://www.lazada.vn/a/?ajax=true&page=1")
+        assert client.bucket.rate == rate               # dừng hẳn, không giảm tốc để thử tiếp
+    assert site.pages == 1
+
+
+@pytest.mark.asyncio
+async def test_stop_on_first_block_saves_response(tmp_path, monkeypatch):
+    monkeypatch.setattr("common.http.BLOCK_SAMPLE_DIR", tmp_path)
+    site = BlockingSite(httpx.Response(200, **HTML_CHALLENGE))
+    async with make_stop_client(site) as client:
+        with pytest.raises(PlatformBlocked, match="response saved to"):
+            await client.get("https://www.lazada.vn/a/?ajax=true&page=1")
+    saved = next(tmp_path.iterdir()).read_text(encoding="utf-8")
+    assert "https://www.lazada.vn/a/?ajax=true&page=1" in saved and "verify you are human" in saved
+
+
+@pytest.mark.asyncio
+async def test_unwritable_sample_dir_still_stops(tmp_path, monkeypatch):
+    blocker = tmp_path / "file"
+    blocker.write_text("x")
+    monkeypatch.setattr("common.http.BLOCK_SAMPLE_DIR", blocker / "sub")    # cha là file nên không tạo được
+    site = BlockingSite(httpx.Response(403, json={}))
+    async with make_stop_client(site) as client:
+        with pytest.raises(PlatformBlocked):
+            await client.get("https://www.lazada.vn/a/")
+
+
+@pytest.mark.asyncio
+async def test_other_platforms_keep_retrying(tmp_path, monkeypatch):
+    monkeypatch.setattr("common.http.BLOCK_SAMPLE_DIR", tmp_path)
+    site = BlockingSite(httpx.Response(200, json={"ok": True}))
+    async with make_stop_client(site, stop=False) as client:
+        assert (await client.get("https://www.lazada.vn/a/")).status_code == 200
+    site = BlockingSite(httpx.Response(403, json={}))
+    async with make_stop_client(site, stop=False) as client:
+        await client.get("https://www.lazada.vn/a/")    # hết lượt thử thì trả response cuối
+    assert site.pages == 4 and list(tmp_path.iterdir()) == []
+
+
+def test_repo_lazada_config_stops_on_first_block():
+    assert load_platform_limits("config/platforms.yaml")["lazada"].stop_on_first_block is True
