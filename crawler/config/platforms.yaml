@@ -37,9 +37,11 @@ fptshop:
   timeout_seconds: 30
 
 tgdd:
-  # Thế Giới Di Động: trang ~550 KB, dữ liệu Next.js nhúng trong HTML
-  requests_per_second: 0.1
-  full_requests_per_second: 0.03
+  # Thế Giới Di Động: trang ~550 KB, dữ liệu Next.js nhúng trong HTML.
+  # 2026-11-04: tgdd chặn ở mức kết nối (ConnectTimeout ~1/4 request, thử TCP 4/5 lần treo)
+  # sau 2 đêm crawl_full + crawl_hot liên tục ở 0.1 / 0.03 -> tạm dừng tgdd, hạ tốc độ.
+  requests_per_second: 0.05
+  full_requests_per_second: 0.02
   max_details_per_run: 150
   max_concurrency: 1
   timeout_seconds: 30

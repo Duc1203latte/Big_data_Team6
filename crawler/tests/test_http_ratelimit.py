@@ -281,13 +281,13 @@ def test_repo_tiki_expects_json():
 # ------------------------------ timeout và log lỗi ------------------------------
 
 @pytest.mark.asyncio
-async def test_timeout_retried_and_slows_down():
+async def test_timeout_retried_without_slowing_down():
+    # Timeout của tgdd xảy ra ngẫu nhiên, giảm tốc thì kẹt ở mức sàn (2026-11-03): chỉ thử lại
     server = Server([-2, 200])
     async with make_client(server) as client:
         assert (await client.get("https://tiki.vn/x")).status_code == 200
         assert len(server.requests) == 2
-        # 1000 -> 500 khi timeout, rồi tăng 5% khi thành công (giống 429)
-        assert client.bucket.rate == pytest.approx(525)
+        assert client.bucket.rate == pytest.approx(1000)
 
 
 @pytest.mark.asyncio
@@ -295,7 +295,7 @@ async def test_connect_error_does_not_slow_down():
     server = Server([0, 200])
     async with make_client(server) as client:
         await client.get("https://tiki.vn/x")
-        assert client.bucket.rate == pytest.approx(1000)     # lỗi mạng khác: chỉ thử lại
+        assert client.bucket.rate == pytest.approx(1000)
 
 
 @pytest.mark.asyncio

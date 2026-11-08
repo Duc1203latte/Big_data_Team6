@@ -5,11 +5,10 @@ Mỗi sàn một HttpClient, gồm:
 - User-Agent học thuật kèm email, timeout.
 - Đọc robots.txt của từng host một lần, URL bị Disallow thì không gọi.
 - Retry bằng tenacity, backoff theo số mũ 5s, 10s, 20s, 40s... tối đa 5 phút:
-  * lỗi mạng, 5xx: thử lại
-  * timeout (kết nối hoặc đọc): thử lại VÀ giảm tốc như 429. Sàn quá tải thường không
-    trả 429 mà để kết nối treo tới hết timeout (tgdd khi crawl_full chạy song song,
-    2026-11-02), nên coi timeout là tín hiệu "đang gửi quá nhanh". Không tính vào
-    số lần bị chặn liên tiếp: mất mạng thì không được dừng cả sàn.
+  * lỗi mạng / timeout, 5xx: thử lại, KHÔNG giảm tốc. Đã thử giảm tốc khi timeout
+    (2026-11-03) nhưng timeout của tgdd xảy ra ngẫu nhiên kể cả khi gửi rất chậm:
+    giảm một nửa mỗi lần, hồi 5% mỗi lần thành công -> tốc độ kẹt ở mức sàn,
+    mỗi vòng crawl_hot tgdd từ ~7 phút thành ~1 giờ 50 phút. Nên đã bỏ.
   * 429 / 403: thử lại VÀ giảm tốc độ của sàn còn một nửa (thành công thì tăng dần lại)
   * "chặn mềm": sàn khai báo expect_json mà trả 2xx không phải JSON (trang kiểm tra
     chống bot, Tiki trả mã 200 kèm HTML): xử lý y như 403
@@ -163,12 +162,7 @@ class HttpClient:
         """Một lần gửi: xin token của sàn rồi gọi mạng, giới hạn số request song song."""
         async with self._semaphore:
             await self.bucket.acquire()
-            try:
-                return await self._client.get(url, params=params)
-            except httpx.TimeoutException:
-                # Sàn trả lời không kịp: giảm tốc rồi ném tiếp cho tenacity thử lại
-                self.bucket.slow_down()
-                raise
+            return await self._client.get(url, params=params)
 
     def _check_status(self, response: httpx.Response) -> None:
         """Phân loại mã trả về; mã cần thử lại thì ném RetryableStatus cho tenacity."""
@@ -219,7 +213,7 @@ class HttpClient:
                 # Không có robots.txt (4xx) = không cấm gì; lỗi khác cũng coi như không cấm
                 parser.parse(resp.text.splitlines() if resp.status_code == 200 else [])
             except httpx.HTTPError as exc:
-                logger.warning("Cannot read robots.txt of %s: %s", host, exc)
+                logger.warning("Cannot read robots.txt of %s: %s", host, describe_error(exc))
                 parser.parse([])
             self._robots[host] = parser
         return parser.can_fetch(self.user_agent, url)
