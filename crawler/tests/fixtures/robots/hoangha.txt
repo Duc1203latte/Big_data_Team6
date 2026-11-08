@@ -1,0 +1,12 @@
+User-agent: *
+Allow: /
+Disallow: /*filters=
+Disallow: /tim-kiem
+Disallow: /so-sanh/
+Disallow: /Ajax/
+Disallow:/gio-hang/
+Disallow:/account/
+Allow: /kho-san-pham-cu
+
+
+Sitemap: https://hoanghamobile.com/sitemap.xml

@@ -5,6 +5,7 @@
 # Thế Giới Di Động: không phân trang (?page=2 trùng trang 1), ~20 SP/URL; trang lọc lấy từ menu (2026-11-01). dong-ho: tắt, trang giới thiệu không có danh sách.
 # Tiki: bị chặn 2026-11-01 ~14:20 UTC (sau đợt đo 2 req/s), gỡ chặn ~15:59 UTC. Bật lại dần:
 #   60 trang đầu các danh mục (enabled=1), phần còn lại enabled=0, tăng dần nếu không bị chặn.
+# Lazada: mỗi danh mục một trang vì phân trang không ổn định (đo 2026-11-04); ?ajax=true trả JSON ~40 SP.
 platform,category,page,url,enabled
 hoangha,dien-thoai-di-dong,1,https://hoanghamobile.com/dien-thoai-di-dong,1
 hoangha,dien-thoai-di-dong,2,https://hoanghamobile.com/dien-thoai-di-dong?p=2,1
@@ -444,3 +445,12 @@ tiki,28670,47,https://tiki.vn/api/personalish/v1/blocks/listings?limit=40&catego
 tiki,28670,48,https://tiki.vn/api/personalish/v1/blocks/listings?limit=40&category=28670&page=48,0
 tiki,28670,49,https://tiki.vn/api/personalish/v1/blocks/listings?limit=40&category=28670&page=49,0
 tiki,28670,50,https://tiki.vn/api/personalish/v1/blocks/listings?limit=40&category=28670&page=50,0
+lazada,dien-thoai-di-dong,1,https://www.lazada.vn/dien-thoai-di-dong/?ajax=true&page=1,1
+lazada,may-tinh-bang,1,https://www.lazada.vn/may-tinh-bang/?ajax=true&page=1,1
+lazada,laptop,1,https://www.lazada.vn/laptop/?ajax=true&page=1,1
+lazada,shop-in-ear-headphones,1,https://www.lazada.vn/shop-in-ear-headphones/?ajax=true&page=1,1
+lazada,shop-wireless-earbuds,1,https://www.lazada.vn/shop-wireless-earbuds/?ajax=true&page=1,1
+lazada,shop-smartwatch-&-fitness-trackers,1,https://www.lazada.vn/shop-smartwatch-&-fitness-trackers/?ajax=true&page=1,1
+lazada,pin-sac-du-phong,1,https://www.lazada.vn/pin-sac-du-phong/?ajax=true&page=1,1
+lazada,bo-sac-co-day-cho-dien-thoai,1,https://www.lazada.vn/bo-sac-co-day-cho-dien-thoai/?ajax=true&page=1,1
+lazada,cap-dien-thoai,1,https://www.lazada.vn/cap-dien-thoai/?ajax=true&page=1,1

@@ -3,7 +3,9 @@
 Mỗi sàn một HttpClient, gồm:
 - Token bucket theo platforms.yaml, giới hạn số request chạy song song.
 - User-Agent học thuật kèm email, timeout.
-- Đọc robots.txt của từng host một lần, URL bị Disallow thì không gọi.
+- Đọc robots.txt của từng host (đọc lại mỗi 24 giờ), URL bị Disallow thì không gọi.
+  Không đọc được robots.txt (5xx, lỗi mạng, 401/403/429, trả trang HTML) thì tạm không
+  crawl host đó; các mã 4xx khác nghĩa là không có file, được phép crawl.
 - Retry bằng tenacity, backoff theo số mũ 5s, 10s, 20s, 40s... tối đa 5 phút:
   * lỗi mạng / timeout, 5xx: thử lại, KHÔNG giảm tốc. Đã thử giảm tốc khi timeout
     (2026-11-03) nhưng timeout của tgdd xảy ra ngẫu nhiên kể cả khi gửi rất chậm:
@@ -13,6 +15,8 @@ Mỗi sàn một HttpClient, gồm:
   * "chặn mềm": sàn khai báo expect_json mà trả 2xx không phải JSON (trang kiểm tra
     chống bot, Tiki trả mã 200 kèm HTML): xử lý y như 403
   * 403 / chặn mềm liên tục quá 10 lần: ném PlatformBlocked để job dừng sàn đó
+  * sàn khai báo stop_on_first_block: dừng ngay ở lần bị chặn đầu tiên và lưu nội dung
+    response vào logs/blocked/ để biết sàn đã trả về gì
   * mã khác (200, 404...): trả về ngay
 Hết số lần thử mà vẫn bị chặn hoặc 5xx thì trả response cuối cho parse() tự bỏ qua.
 
@@ -21,9 +25,12 @@ Không lách chống bot: không đổi proxy, không giả trình duyệt, khô
 
 import asyncio
 import logging
+import time
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
-from urllib.robotparser import RobotFileParser
 
 import httpx
 from tenacity import (
@@ -36,11 +43,30 @@ from tenacity import (
 
 from common.config import PlatformLimits
 from common.ratelimit import TokenBucket
+from common.robots import RobotsRules
 
 logger = logging.getLogger(__name__)
 
 BLOCK_STATUSES = {403, 429}
 SERVER_ERROR_STATUSES = {500, 502, 503, 504}
+# Bị từ chối đọc robots.txt khác với không có file, nên không coi là được phép
+ROBOTS_REFUSED_STATUSES = {401, 403, 429}
+# Nơi lưu response bị chặn để điều tra. Thư mục logs/ không commit
+BLOCK_SAMPLE_DIR = Path("logs/blocked")
+BLOCK_SAMPLE_MAX_CHARS = 256_000
+
+
+def save_block_sample(platform: str, url: Any, status: int, body: str) -> Path | None:
+    """Lưu response bị chặn ra file. Không ghi được thì chỉ log, không làm hỏng việc dừng sàn."""
+    now = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    path = BLOCK_SAMPLE_DIR / f"{platform}-{now}.txt"
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"URL: {url}\nHTTP: {status}\n\n{body[:BLOCK_SAMPLE_MAX_CHARS]}", encoding="utf-8")
+    except OSError as exc:
+        logger.warning("Cannot save block sample: %s", exc)
+        return None
+    return path
 
 
 def looks_like_json(response: httpx.Response) -> bool:
@@ -78,6 +104,18 @@ class RobotsDisallowed(Exception):
     """URL bị robots.txt cấm."""
 
 
+class RobotsUnavailable(RobotsDisallowed):
+    """Chưa đọc được robots.txt nên tạm không crawl. Là lớp con để job xử lý như URL bị cấm."""
+
+
+@dataclass
+class _RobotsEntry:
+    """robots.txt đã đọc của một host. rules = None nghĩa là chưa từng đọc được."""
+
+    rules: RobotsRules | None
+    next_fetch: float       # thời điểm (time.monotonic) cần đọc lại
+
+
 class RetryableStatus(Exception):
     """Dùng nội bộ: response có mã cần thử lại (429/403/5xx)."""
 
@@ -97,11 +135,14 @@ class HttpClient:
         backoff_base: float = 5.0,
         backoff_max: float = 300.0,
         max_consecutive_blocks: int = 10,
+        robots_ttl_seconds: float = 24 * 3600,
+        robots_retry_seconds: float = 600,
         transport: httpx.AsyncBaseTransport | None = None,   # test truyền MockTransport
     ) -> None:
         self.platform = platform
         self.user_agent = user_agent
         self.expect_json = limits.expect_json
+        self.stop_on_first_block = limits.stop_on_first_block
         self.bucket = TokenBucket(limits.requests_per_second)
         self._semaphore = asyncio.Semaphore(limits.max_concurrency)
         self.max_attempts = max_attempts
@@ -109,7 +150,9 @@ class HttpClient:
         self.backoff_max = backoff_max
         self.max_consecutive_blocks = max_consecutive_blocks
         self._consecutive_blocks = 0        # số lần 403 / chặn mềm liên tiếp
-        self._robots: dict[str, RobotFileParser] = {}        # host -> robots đã đọc
+        self.robots_ttl_seconds = robots_ttl_seconds         # bao lâu đọc lại robots.txt một lần
+        self.robots_retry_seconds = robots_retry_seconds     # đọc lỗi thì bao lâu sau thử lại
+        self._robots: dict[str, _RobotsEntry] = {}           # host -> robots đã đọc
         self._client = httpx.AsyncClient(
             headers={"User-Agent": user_agent, "Accept": "application/json, text/html;q=0.9"},
             timeout=limits.timeout_seconds,
@@ -131,8 +174,8 @@ class HttpClient:
     # ------------------------------------------------------------------
 
     async def get(self, url: str, *, params: dict[str, Any] | None = None) -> httpx.Response:
-        if not await self._allowed_by_robots(url):
-            raise RobotsDisallowed(url)
+        if not await self._allowed_by_robots(url, params):
+            raise RobotsDisallowed("disallowed by robots.txt")
 
         retrying = AsyncRetrying(
             retry=retry_if_exception_type((httpx.TransportError, RetryableStatus)),
@@ -168,6 +211,13 @@ class HttpClient:
         """Phân loại mã trả về; mã cần thử lại thì ném RetryableStatus cho tenacity."""
         status = response.status_code
         soft_block = is_soft_block(response, self.expect_json)
+        if self.stop_on_first_block and (status in BLOCK_STATUSES or soft_block):
+            sample = save_block_sample(self.platform, response.request.url, status, response.text)
+            raise PlatformBlocked(
+                f"{self.platform}: blocked at {response.request.url} "
+                f"(HTTP {status}, {response.headers.get('content-type', 'no content-type')}), "
+                f"stopping, response saved to {sample}"
+            )
         if status == 403 or soft_block:
             self._consecutive_blocks += 1
             if self._consecutive_blocks > self.max_consecutive_blocks:
@@ -200,20 +250,50 @@ class HttpClient:
             state.next_action.sleep if state.next_action else 0, describe_error(exc),
         )
 
-    async def _allowed_by_robots(self, url: str) -> bool:
-        """Đọc robots.txt của host (một lần, có cache) rồi hỏi URL có được phép không."""
+    async def _allowed_by_robots(self, url: str, params: dict[str, Any] | None = None) -> bool:
+        """URL có được phép không. Chưa đọc được robots.txt thì ném RobotsUnavailable."""
         parts = urlsplit(url)
         host = f"{parts.scheme}://{parts.netloc}"
-        parser = self._robots.get(host)
-        if parser is None:
-            parser = RobotFileParser()
-            try:
-                await self.bucket.acquire()     # robots.txt cũng tính vào tốc độ của sàn
-                resp = await self._client.get(f"{host}/robots.txt")
-                # Không có robots.txt (4xx) = không cấm gì; lỗi khác cũng coi như không cấm
-                parser.parse(resp.text.splitlines() if resp.status_code == 200 else [])
-            except httpx.HTTPError as exc:
-                logger.warning("Cannot read robots.txt of %s: %s", host, describe_error(exc))
-                parser.parse([])
-            self._robots[host] = parser
-        return parser.can_fetch(self.user_agent, url)
+        entry = self._robots.get(host)
+        if entry is None or time.monotonic() >= entry.next_fetch:
+            entry = await self._load_robots(host, entry)
+            self._robots[host] = entry
+        if entry.rules is None:
+            raise RobotsUnavailable("robots.txt unavailable")
+        # Kiểm tra URL thật sẽ gửi đi: giống httpx, params được gộp vào query có sẵn trong URL
+        target = httpx.URL(url)
+        if params is not None:
+            target = target.copy_merge_params(params)
+        return entry.rules.is_allowed(target.raw_path.decode("ascii"))
+
+    async def _load_robots(self, host: str, previous: _RobotsEntry | None) -> _RobotsEntry:
+        """Đọc robots.txt. Lỗi thì giữ bản đã đọc trước đó (nếu có) và hẹn thử lại sau."""
+        rules = None
+        reason = ""
+        try:
+            await self.bucket.acquire()     # robots.txt cũng tính vào tốc độ của sàn
+            resp = await self._client.get(f"{host}/robots.txt")
+            status = resp.status_code
+            if status == 200 and not self._is_html(resp):
+                rules = RobotsRules(resp.text, self.user_agent)
+            elif 400 <= status < 500 and status not in ROBOTS_REFUSED_STATUSES:
+                rules = RobotsRules.allow_all()     # không có robots.txt = không cấm gì
+            else:
+                reason = f"HTTP {status}, {resp.headers.get('content-type', 'no content-type')}"
+        except httpx.HTTPError as exc:
+            reason = describe_error(exc)
+
+        now = time.monotonic()
+        if rules is not None:
+            return _RobotsEntry(rules, now + self.robots_ttl_seconds)
+        kept = previous.rules if previous else None
+        logger.warning("Cannot read robots.txt of %s (%s), %s", host, reason,
+                       "keeping previous copy" if kept else "skipping host for now")
+        return _RobotsEntry(kept, now + self.robots_retry_seconds)
+
+    @staticmethod
+    def _is_html(response: httpx.Response) -> bool:
+        """Trang HTML thay cho robots.txt thường là trang chống bot, không phải quy tắc."""
+        if "html" in response.headers.get("content-type", "").lower():
+            return True
+        return response.text.lstrip()[:1] == "<"

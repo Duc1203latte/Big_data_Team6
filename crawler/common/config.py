@@ -70,6 +70,9 @@ class PlatformLimits:
     # Sàn dùng API JSON: response 2xx mà không phải JSON (ví dụ trang kiểm tra chống bot
     # của tường lửa, trả mã 200) bị coi là BỊ CHẶN, xử lý như 403.
     expect_json: bool = False
+    # Dừng sàn ngay ở lần bị chặn đầu tiên (403, 429, chặn mềm), không thử lại hay giảm tốc.
+    # Dùng cho sàn dễ chặn, nơi gửi thêm request lúc đang bị chặn có thể làm tình hình nặng hơn.
+    stop_on_first_block: bool = False
     # Chu kỳ crawl nhóm hot (phút). Sàn có trang nặng (CellphoneS) để thưa hơn.
     hot_cycle_minutes: int = 30
     # crawl_full chạy song song với crawl_hot nên dùng tốc độ riêng, thấp hơn
