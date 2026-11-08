@@ -3,6 +3,7 @@
 landing/
 state/
 logs/
+exports/
 __pycache__/
 .pytest_cache/
 CLAUDE.md
