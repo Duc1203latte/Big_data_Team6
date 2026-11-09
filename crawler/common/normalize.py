@@ -93,9 +93,12 @@ def to_utc(ts: str | datetime | None) -> datetime | None:
     if isinstance(ts, datetime):
         dt = ts
     elif isinstance(ts, str):
+        text = ts.strip()
+        # Python 3.10 (image Spark) không đọc được đuôi "Z" -> đổi thành "+00:00"; 3.11 thì đọc được cả hai
+        if text.endswith(("Z", "z")):
+            text = text[:-1] + "+00:00"
         try:
-            # Python 3.11 đọc được cả đuôi "Z" lẫn "+07:00"
-            dt = datetime.fromisoformat(ts.strip())
+            dt = datetime.fromisoformat(text)
         except ValueError:
             return None
     else:
