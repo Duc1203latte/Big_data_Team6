@@ -33,7 +33,8 @@ class Settings:
     state_db: Path
     log_level: str
     contact_email: str
-    sink: str = "file"      # nơi ghi event: "file" (JSONL vào landing_dir); 2A thêm "kafka"
+    sink: str = "file"      # nơi ghi event: "file", "kafka" hoặc "file,kafka" (ghi song song)
+    kafka_bootstrap_servers: str = "localhost:9092"     # chỉ dùng khi SINK có kafka
 
     @property
     def user_agent(self) -> str:
@@ -43,6 +44,17 @@ class Settings:
             f"(academic research project; contact: {self.contact_email})"
         )
 
+    @property
+    def sink_config(self):
+        """SinkConfig cho make_sink. Message Kafka gửi hỏng được ghi vào state/kafka_failed/,
+        cạnh file SQLite của crawler."""
+        from common.sink import SinkConfig, parse_sink_kinds
+        return SinkConfig(
+            kinds=parse_sink_kinds(self.sink),
+            kafka_bootstrap_servers=self.kafka_bootstrap_servers,
+            kafka_failed_dir=self.state_db.parent / "kafka_failed",
+        )
+
 
 def load_settings(env_file: str | Path = ".env") -> Settings:
     load_env_file(env_file)
@@ -50,11 +62,17 @@ def load_settings(env_file: str | Path = ".env") -> Settings:
     # Chưa điền email (còn placeholder "<...>") thì dừng luôn, không gửi request
     if not email or "<" in email:
         raise RuntimeError("CONTACT_EMAIL is not set in .env")
-    # Sai tên sink thì dừng ngay lúc khởi động, không đợi tới lúc ghi event đầu tiên
-    from common.sink import SINK_KINDS     # import ở đây để config không kéo theo schema khi không cần
-    sink = os.getenv("SINK", "file").strip().lower()
-    if sink not in SINK_KINDS:
-        raise RuntimeError(f"SINK={sink!r} in .env is not supported (supported: {', '.join(SINK_KINDS)})")
+    # Sai tên sink thì dừng ngay lúc khởi động, không đợi tới lúc ghi event đầu tiên.
+    # SINK có thể là danh sách: "file,kafka" -> ghi song song (MultiSink).
+    from common.sink import parse_sink_kinds     # import ở đây để config không kéo theo schema khi không cần
+    raw_sink = os.getenv("SINK", "file")
+    try:
+        sink = ",".join(parse_sink_kinds(raw_sink))
+    except ValueError as exc:
+        raise RuntimeError(f"SINK={raw_sink!r} in .env is not supported: {exc}") from None
+    kafka_servers = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092").strip()
+    if "kafka" in sink.split(",") and not kafka_servers:
+        raise RuntimeError("SINK includes kafka but KAFKA_BOOTSTRAP_SERVERS is empty in .env")
     return Settings(
         crawler_version=os.getenv("CRAWLER_VERSION", "0.1.0"),
         landing_dir=Path(os.getenv("LANDING_DIR", "./landing")),
@@ -62,6 +80,7 @@ def load_settings(env_file: str | Path = ".env") -> Settings:
         log_level=os.getenv("LOG_LEVEL", "INFO"),
         contact_email=email,
         sink=sink,
+        kafka_bootstrap_servers=kafka_servers,
     )
 
 

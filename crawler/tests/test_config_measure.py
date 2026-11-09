@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 
 import httpx
 import pytest
+from pathlib import Path
 
 from common.config import load_env_file, load_settings
 from jobs.measure_limits import LevelResult, append_report, parse_args, render_report, run_level
@@ -17,7 +18,8 @@ def write_env(tmp_path, text):
     return path
 
 
-ENV_KEYS = ["CRAWLER_VERSION", "LANDING_DIR", "STATE_DB", "LOG_LEVEL", "CONTACT_EMAIL", "SINK"]
+ENV_KEYS = ["CRAWLER_VERSION", "LANDING_DIR", "STATE_DB", "LOG_LEVEL", "CONTACT_EMAIL", "SINK",
+            "KAFKA_BOOTSTRAP_SERVERS"]
 
 
 @pytest.fixture(autouse=True)
@@ -57,9 +59,32 @@ def test_sink_read_from_env_file(tmp_path):
     assert load_settings(env).sink == "file"
 
 
-def test_unknown_sink_rejected_at_startup(tmp_path):
-    env = write_env(tmp_path, "CONTACT_EMAIL=a@b.c\nSINK=kafka\n")     # 2A mới có kafka
+@pytest.mark.parametrize("value", ["s3", "file,s3", "file,file", ",", ""])
+def test_unknown_sink_rejected_at_startup(tmp_path, value):
+    env = write_env(tmp_path, f"CONTACT_EMAIL=a@b.c\nSINK={value}\n")
     with pytest.raises(RuntimeError, match="SINK"):
+        load_settings(env)
+
+
+def test_multi_sink_and_kafka_address(tmp_path):
+    env = write_env(tmp_path, "CONTACT_EMAIL=a@b.c\nSINK= File , KAFKA \nKAFKA_BOOTSTRAP_SERVERS=broker:9092\n"
+                              "STATE_DB=./st/crawler.db\n")
+    settings = load_settings(env)
+    assert settings.sink == "file,kafka"
+    config = settings.sink_config
+    assert config.kinds == ("file", "kafka")
+    assert config.kafka_bootstrap_servers == "broker:9092"
+    assert config.kafka_failed_dir == Path("st/kafka_failed")
+
+
+def test_kafka_address_defaults_to_localhost(tmp_path):
+    env = write_env(tmp_path, "CONTACT_EMAIL=a@b.c\nSINK=kafka\n")
+    assert load_settings(env).sink_config.kafka_bootstrap_servers == "localhost:9092"
+
+
+def test_kafka_sink_needs_address(tmp_path):
+    env = write_env(tmp_path, "CONTACT_EMAIL=a@b.c\nSINK=file,kafka\nKAFKA_BOOTSTRAP_SERVERS=\n")
+    with pytest.raises(RuntimeError, match="KAFKA_BOOTSTRAP_SERVERS"):
         load_settings(env)
 
 

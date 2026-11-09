@@ -38,7 +38,7 @@ from common.config import PlatformLimits, load_platform_limits, load_settings
 from common.http import HttpClient, PlatformBlocked, RobotsDisallowed
 from common.logging_setup import setup_logging
 from common.schema import ProductRef
-from common.sink import EventSink, make_sink
+from common.sink import EventSink, SinkConfig, make_sink
 from common.state import StateStore
 from platforms import PLATFORM_CLASSES
 from platforms.base import Platform
@@ -113,7 +113,7 @@ async def crawl_page(platform: Platform, ref: ProductRef, sink: EventSink, state
 
 
 async def run_cycle(platform: Platform, items: list[WatchItem], state: StateStore, landing_dir: Path,
-                    sink_kind: str = "file") -> int:
+                    sink_kind: str | SinkConfig = "file") -> int:
     """Một vòng crawl của một sàn. Trả về số event đã ghi.
 
     Luôn finish_run trong finally, kể cả khi bị chặn hoặc bị Ctrl+C,
@@ -152,7 +152,7 @@ async def run_cycle(platform: Platform, items: list[WatchItem], state: StateStor
 
 async def platform_loop(platform: Platform, items: list[WatchItem], state: StateStore,
                         landing_dir: Path, cycle_seconds: float, stop: asyncio.Event,
-                        once: bool = False, sink_kind: str = "file") -> None:
+                        once: bool = False, sink_kind: str | SinkConfig = "file") -> None:
     """Chạy run_cycle lặp lại mỗi cycle_seconds cho tới khi có tín hiệu dừng."""
     while not stop.is_set():
         started = time.monotonic()
@@ -180,7 +180,8 @@ async def crawl_hot(platform_names: list[str] | None, watchlist_path: Path, once
     setup_logging(level=settings.log_level)
     limits: dict[str, PlatformLimits] = load_platform_limits()
     watchlist = load_watchlist(watchlist_path)
-    logger.info("Sink: %s", settings.sink)
+    logger.info("Sink: %s%s", settings.sink,
+                f" (Kafka {settings.kafka_bootstrap_servers})" if "kafka" in settings.sink else "")
 
     names = platform_names or sorted(watchlist)
     for name in names:
@@ -212,7 +213,7 @@ async def crawl_hot(platform_names: list[str] | None, watchlist_path: Path, once
                             name, len(watchlist[name]), limits[name].hot_cycle_minutes)
                 tasks.append(asyncio.create_task(
                     platform_loop(platform, watchlist[name], state, settings.landing_dir,
-                                  cycle_seconds, stop, once, settings.sink),
+                                  cycle_seconds, stop, once, settings.sink_config),
                     name=name,
                 ))
             await asyncio.gather(*tasks, return_exceptions=True)

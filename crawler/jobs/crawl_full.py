@@ -33,7 +33,7 @@ from common.config import load_platform_limits, load_settings
 from common.http import HttpClient, PlatformBlocked, RobotsDisallowed
 from common.logging_setup import setup_logging
 from common.schema import ProductRef
-from common.sink import make_sink
+from common.sink import SinkConfig, make_sink
 from common.state import StateStore, utc_now
 from jobs.crawl_hot import crawl_page
 from platforms import PLATFORM_CLASSES
@@ -56,7 +56,7 @@ def load_full_categories(path: str | Path) -> dict[str, list[str]]:
 
 
 async def run_full(platform: Platform, categories: list[str], state: StateStore, landing_dir: Path,
-                   max_details: int, detail_stale_days: float, sink_kind: str = "file") -> int:
+                   max_details: int, detail_stale_days: float, sink_kind: str | SinkConfig = "file") -> int:
     """Một lần crawl toàn danh mục + trang chi tiết của một sàn. Trả về số event đã ghi."""
     run_id = state.start_run(JOB_NAME, platform.name)
     sink = make_sink(sink_kind, run_id, landing_dir=landing_dir)
@@ -114,7 +114,8 @@ async def crawl_full(platform_names: list[str] | None, categories_path: Path, ma
     settings = load_settings()
     setup_logging(level=settings.log_level)
     limits = load_platform_limits()
-    logger.info("Sink: %s", settings.sink)
+    logger.info("Sink: %s%s", settings.sink,
+                f" (Kafka {settings.kafka_bootstrap_servers})" if "kafka" in settings.sink else "")
     categories = load_full_categories(categories_path)
 
     names = platform_names or sorted(categories)
@@ -151,7 +152,7 @@ async def crawl_full(platform_names: list[str] | None, categories_path: Path, ma
                                     name, len(categories[name]), full_limits.requests_per_second)
                         tasks.append(run_full(platform, categories[name], state, settings.landing_dir,
                                               max_details or limits[name].max_details_per_run,
-                                              detail_stale_days, settings.sink))
+                                              detail_stale_days, settings.sink_config))
                     await asyncio.gather(*tasks)
             if daily_at is None:
                 break

@@ -123,7 +123,7 @@ def test_make_sink_file(tmp_path):
 
 def test_make_sink_unknown_rejected(tmp_path):
     with pytest.raises(ValueError, match="unknown sink"):
-        make_sink("kafka", "run-1", landing_dir=tmp_path)
+        make_sink("s3", "run-1", landing_dir=tmp_path)
 
 
 def test_platforms_do_not_depend_on_sink():

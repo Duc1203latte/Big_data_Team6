@@ -120,8 +120,11 @@ LANDING_DIR=./landing
 STATE_DB=./state/crawler.db
 LOG_LEVEL=INFO
 CONTACT_EMAIL=<email để ghi vào User-Agent>
-# Nơi ghi event: file = JSONL trong LANDING_DIR (giai đoạn 1). Giai đoạn 2A thêm kafka.
+# Nơi ghi event: file = JSONL trong LANDING_DIR (giai đoạn 1), kafka = đẩy vào Kafka (giai đoạn 2A).
+# Nhiều sink cách nhau dấu phẩy thì ghi song song, ví dụ SINK=file,kafka (README-2A mục 7).
 SINK=file
+# Chỉ dùng khi SINK có kafka. Message gửi hỏng được ghi vào state/kafka_failed/ để gửi lại sau.
+KAFKA_BOOTSTRAP_SERVERS=localhost:9092
 ```
 
 `.gitignore` cần có: `.venv/`, `.env`, `landing/`, `state/`, `logs/`, `exports/`, `__pycache__/`, `.pytest_cache/`.
