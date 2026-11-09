@@ -9,3 +9,5 @@ rich==13.*
 pandas==2.*
 pytest==8.*
 pytest-asyncio==0.24.*
+deltalake==1.*
+pyarrow==26.*
