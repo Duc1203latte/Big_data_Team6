@@ -120,9 +120,11 @@ LANDING_DIR=./landing
 STATE_DB=./state/crawler.db
 LOG_LEVEL=INFO
 CONTACT_EMAIL=<email để ghi vào User-Agent>
+# Nơi ghi event: file = JSONL trong LANDING_DIR (giai đoạn 1). Giai đoạn 2A thêm kafka.
+SINK=file
 ```
 
-`.gitignore` cần có: `.venv/`, `.env`, `landing/`, `state/`, `logs/`, `__pycache__/`, `.pytest_cache/`.
+`.gitignore` cần có: `.venv/`, `.env`, `landing/`, `state/`, `logs/`, `exports/`, `__pycache__/`, `.pytest_cache/`.
 
 ### 3.5. Chạy dài ngày trên WSL
 
@@ -176,7 +178,8 @@ bigdata-crawler/
 │   ├── measure_limits.py   # đo giới hạn truy cập từng sàn
 │   ├── crawl_hot.py        # 10.000 SKU mỗi 30 phút
 │   ├── crawl_full.py       # 200.000 SKU mỗi ngày
-│   └── status.py           # xem nhanh tình trạng: event theo sàn, run lỗi, khoảng trống
+│   ├── status.py           # xem nhanh tình trạng: event theo sàn, run lỗi, khoảng trống
+│   └── export_csv.py       # xuất landing/ ra CSV theo sàn + báo cáo thống kê (exports/)
 ├── tests/
 │   ├── fixtures/           # payload thật lưu lại, mỗi sàn một thư mục
 │   └── test_parse_*.py
@@ -436,10 +439,12 @@ Bước 8 và 9 làm song song trong lúc crawler đã chạy, không cần ch�
 
 ## 9. Tiêu chí hoàn thành giai đoạn 1
 
-- [ ] `crawl_hot` chạy một vòng ra JSONL đúng schema, đọc lại bằng pandas không lỗi
-- [ ] Đổi sink chỉ cần sửa config, không sửa file nào trong `platforms/`
-- [ ] Ctrl+C giữa chừng rồi chạy lại: không sinh `event_id` trùng
-- [ ] Mỗi sàn có fixture, `pytest` pass hoàn toàn offline
-- [ ] `docs/api_limits.md` có số đo thật của từng sàn
-- [ ] Bảng `crawl_runs` ghi đúng mỗi lần bật tắt
-- [ ] Crawler chạy liên tục trong tmux, dữ liệu vào `landing/` theo đúng partition
+- [x] `crawl_hot` chạy một vòng ra JSONL đúng schema, đọc lại bằng pandas không lỗi
+- [x] Đổi sink chỉ cần sửa config, không sửa file nào trong `platforms/`
+- [x] Ctrl+C giữa chừng rồi chạy lại: không sinh `event_id` trùng
+- [x] Mỗi sàn có fixture, `pytest` pass hoàn toàn offline
+- [x] `docs/api_limits.md` có số đo thật của từng sàn
+- [x] Bảng `crawl_runs` ghi đúng mỗi lần bật tắt
+- [x] Crawler chạy liên tục trong tmux, dữ liệu vào `landing/` theo đúng partition
+
+Đạt đủ 7 tiêu chí ngày 08/11/2026 (sink chọn qua `SINK` trong `.env`; số liệu từng sàn ở `docs/api_limits.md`). Crawler tiếp tục chạy liên tục trong lúc làm giai đoạn 2A.

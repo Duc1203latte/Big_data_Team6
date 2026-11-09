@@ -33,6 +33,7 @@ class Settings:
     state_db: Path
     log_level: str
     contact_email: str
+    sink: str = "file"      # nơi ghi event: "file" (JSONL vào landing_dir); 2A thêm "kafka"
 
     @property
     def user_agent(self) -> str:
@@ -49,12 +50,18 @@ def load_settings(env_file: str | Path = ".env") -> Settings:
     # Chưa điền email (còn placeholder "<...>") thì dừng luôn, không gửi request
     if not email or "<" in email:
         raise RuntimeError("CONTACT_EMAIL is not set in .env")
+    # Sai tên sink thì dừng ngay lúc khởi động, không đợi tới lúc ghi event đầu tiên
+    from common.sink import SINK_KINDS     # import ở đây để config không kéo theo schema khi không cần
+    sink = os.getenv("SINK", "file").strip().lower()
+    if sink not in SINK_KINDS:
+        raise RuntimeError(f"SINK={sink!r} in .env is not supported (supported: {', '.join(SINK_KINDS)})")
     return Settings(
         crawler_version=os.getenv("CRAWLER_VERSION", "0.1.0"),
         landing_dir=Path(os.getenv("LANDING_DIR", "./landing")),
         state_db=Path(os.getenv("STATE_DB", "./state/crawler.db")),
         log_level=os.getenv("LOG_LEVEL", "INFO"),
         contact_email=email,
+        sink=sink,
     )
 
 

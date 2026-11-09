@@ -17,7 +17,7 @@ def write_env(tmp_path, text):
     return path
 
 
-ENV_KEYS = ["CRAWLER_VERSION", "LANDING_DIR", "STATE_DB", "LOG_LEVEL", "CONTACT_EMAIL"]
+ENV_KEYS = ["CRAWLER_VERSION", "LANDING_DIR", "STATE_DB", "LOG_LEVEL", "CONTACT_EMAIL", "SINK"]
 
 
 @pytest.fixture(autouse=True)
@@ -44,6 +44,22 @@ def test_existing_env_var_not_overridden(tmp_path, monkeypatch):
 def test_placeholder_email_rejected(tmp_path):
     env = write_env(tmp_path, "CONTACT_EMAIL=<email để ghi vào User-Agent>\n")
     with pytest.raises(RuntimeError):
+        load_settings(env)
+
+
+def test_sink_defaults_to_file(tmp_path):
+    env = write_env(tmp_path, "CONTACT_EMAIL=a@b.c\n")
+    assert load_settings(env).sink == "file"
+
+
+def test_sink_read_from_env_file(tmp_path):
+    env = write_env(tmp_path, "CONTACT_EMAIL=a@b.c\nSINK= File \n")
+    assert load_settings(env).sink == "file"
+
+
+def test_unknown_sink_rejected_at_startup(tmp_path):
+    env = write_env(tmp_path, "CONTACT_EMAIL=a@b.c\nSINK=kafka\n")     # 2A mới có kafka
+    with pytest.raises(RuntimeError, match="SINK"):
         load_settings(env)
 
 

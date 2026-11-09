@@ -4,8 +4,8 @@
 lặp riêng song song:
 
     mỗi chu kỳ (mặc định 30 phút, CellphoneS 60 phút - xem platforms.yaml):
-        start_run -> crawl lần lượt các trang của sàn -> ghi JSONL qua FileSink
-        -> cập nhật catalog -> finish_run -> ngủ tới chu kỳ sau
+        start_run -> crawl lần lượt các trang của sàn -> ghi event qua sink (SINK trong .env,
+        mặc định file = JSONL trong landing/) -> cập nhật catalog -> finish_run -> ngủ tới chu kỳ sau
 
 Mỗi chu kỳ là một dòng trong crawl_runs (đã thống nhất), nên khoảng trống dữ liệu
 khi tắt máy được ghi lại chính xác tới từng vòng.
@@ -38,7 +38,7 @@ from common.config import PlatformLimits, load_platform_limits, load_settings
 from common.http import HttpClient, PlatformBlocked, RobotsDisallowed
 from common.logging_setup import setup_logging
 from common.schema import ProductRef
-from common.sink import FileSink
+from common.sink import EventSink, make_sink
 from common.state import StateStore
 from platforms import PLATFORM_CLASSES
 from platforms.base import Platform
@@ -80,7 +80,7 @@ def load_watchlist(path: str | Path) -> dict[str, list[WatchItem]]:
     return items
 
 
-async def crawl_page(platform: Platform, ref: ProductRef, sink: FileSink, state: StateStore,
+async def crawl_page(platform: Platform, ref: ProductRef, sink: EventSink, state: StateStore,
                      is_hot: bool | None) -> int:
     """Crawl một trang: fetch -> parse -> bỏ event trùng -> ghi JSONL -> cập nhật catalog.
 
@@ -112,14 +112,15 @@ async def crawl_page(platform: Platform, ref: ProductRef, sink: FileSink, state:
     return len(events)
 
 
-async def run_cycle(platform: Platform, items: list[WatchItem], state: StateStore, landing_dir: Path) -> int:
+async def run_cycle(platform: Platform, items: list[WatchItem], state: StateStore, landing_dir: Path,
+                    sink_kind: str = "file") -> int:
     """Một vòng crawl của một sàn. Trả về số event đã ghi.
 
     Luôn finish_run trong finally, kể cả khi bị chặn hoặc bị Ctrl+C,
     để crawl_runs không còn dòng "running" treo.
     """
     run_id = state.start_run(JOB_NAME, platform.name)
-    sink = FileSink(landing_dir, run_id)
+    sink = make_sink(sink_kind, run_id, landing_dir=landing_dir)
     events_total = 0
     pages_empty = 0
     status, error = "ok", None
@@ -151,12 +152,12 @@ async def run_cycle(platform: Platform, items: list[WatchItem], state: StateStor
 
 async def platform_loop(platform: Platform, items: list[WatchItem], state: StateStore,
                         landing_dir: Path, cycle_seconds: float, stop: asyncio.Event,
-                        once: bool = False) -> None:
+                        once: bool = False, sink_kind: str = "file") -> None:
     """Chạy run_cycle lặp lại mỗi cycle_seconds cho tới khi có tín hiệu dừng."""
     while not stop.is_set():
         started = time.monotonic()
         try:
-            await run_cycle(platform, items, state, landing_dir)
+            await run_cycle(platform, items, state, landing_dir, sink_kind)
         except PlatformBlocked as exc:
             logger.critical("%s is blocking us, platform stopped: %s", platform.name, exc)
             return
@@ -179,6 +180,7 @@ async def crawl_hot(platform_names: list[str] | None, watchlist_path: Path, once
     setup_logging(level=settings.log_level)
     limits: dict[str, PlatformLimits] = load_platform_limits()
     watchlist = load_watchlist(watchlist_path)
+    logger.info("Sink: %s", settings.sink)
 
     names = platform_names or sorted(watchlist)
     for name in names:
@@ -210,7 +212,7 @@ async def crawl_hot(platform_names: list[str] | None, watchlist_path: Path, once
                             name, len(watchlist[name]), limits[name].hot_cycle_minutes)
                 tasks.append(asyncio.create_task(
                     platform_loop(platform, watchlist[name], state, settings.landing_dir,
-                                  cycle_seconds, stop, once),
+                                  cycle_seconds, stop, once, settings.sink),
                     name=name,
                 ))
             await asyncio.gather(*tasks, return_exceptions=True)

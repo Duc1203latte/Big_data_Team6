@@ -7,7 +7,7 @@ import pytest
 from pydantic import TypeAdapter
 
 from common.schema import Event, PriceEvent, ProductEvent
-from common.sink import FileSink
+from common.sink import FileSink, make_sink
 
 BASE_TIME = datetime(2026, 10, 25, 15, 0, 5, tzinfo=timezone.utc)
 
@@ -111,3 +111,24 @@ def test_write_after_close_raises(tmp_path):
 def test_invalid_run_id_rejected(tmp_path):
     with pytest.raises(ValueError):
         FileSink(tmp_path, run_id="a/b")
+
+
+# ------------------------------ chọn sink qua config ------------------------------
+
+def test_make_sink_file(tmp_path):
+    sink = make_sink("file", "run-1", landing_dir=tmp_path)
+    assert isinstance(sink, FileSink)
+    assert sink.landing_dir == tmp_path and sink.run_id == "run-1"
+
+
+def test_make_sink_unknown_rejected(tmp_path):
+    with pytest.raises(ValueError, match="unknown sink"):
+        make_sink("kafka", "run-1", landing_dir=tmp_path)
+
+
+def test_platforms_do_not_depend_on_sink():
+    # Tiêu chí 9: đổi sink không phải sửa gì trong platforms/ -> platforms/ không được import sink
+    from pathlib import Path
+    for path in Path("platforms").glob("*.py"):
+        text = path.read_text(encoding="utf-8")
+        assert "common.sink" not in text and "FileSink" not in text, path

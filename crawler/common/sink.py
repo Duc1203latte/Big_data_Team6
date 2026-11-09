@@ -78,3 +78,17 @@ class FileSink(EventSink):
 
     def close(self) -> None:
         self._closed = True
+
+# Các loại sink chọn được qua biến SINK trong .env. Giai đoạn 2A thêm "kafka" (KafkaSink)
+# ngay tại đây; jobs/ và platforms/ không phải sửa gì.
+SINK_KINDS = ("file",)
+
+
+def make_sink(kind: str, run_id: str, *, landing_dir: str | Path) -> EventSink:
+    """Tạo sink cho một run theo cấu hình SINK (README tiêu chí 9: đổi sink chỉ cần sửa config).
+
+    - "file": FileSink ghi JSONL vào landing_dir (giai đoạn 1).
+    """
+    if kind == "file":
+        return FileSink(landing_dir, run_id)
+    raise ValueError(f"unknown sink {kind!r}, supported: {', '.join(SINK_KINDS)}")
