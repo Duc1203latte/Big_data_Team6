@@ -1,11 +1,11 @@
 # Hạ tầng giai đoạn 2 (README-2A mục 3, 5). Bật theo đợt bằng profile, KHÔNG bật tất cả cùng lúc:
 #   docker compose --profile kafka up -d      # đợt 1 (bước 3)
-#   docker compose --profile hdfs up -d       # đợt 2 (bước 5, chưa có)
-#   docker compose --profile spark up -d      # đợt 3 (bước 7, chưa có)
+#   docker compose --profile hdfs up -d       # đợt 2 (bước 5)
+#   docker compose --profile spark up -d      # đợt 3 (bước 7); job nộp bằng spark/submit.sh
 # Chạy trong thư mục crawler/infra/. Biến ${...} lấy từ infra/.env (chép từ .env.example).
 #
-# Mọi service PHẢI có deploy.resources.limits.memory: máy 16 GB, crawler chạy native bên ngoài Docker
-# và là tiến trình quan trọng nhất, Docker không được ăn tới mức OOM killer giết crawler.
+# Mọi service PHẢI có deploy.resources.limits.memory: WSL bị giới hạn RAM (.wslconfig), crawler chạy native
+# bên ngoài Docker và là tiến trình quan trọng nhất, Docker không được ăn tới mức OOM killer giết crawler.
 
 name: bigdata                           # tiền tố tên mạng và volume: bigdata_default, bigdata_kafka-data
 
@@ -58,5 +58,204 @@ services:
       retries: 10
       start_period: 30s
 
+  # ---------------------------------------------------------------------------
+  # HDFS (đợt 2): 1 NameNode + 2 DataNode, replication = 2 (README-2A mục 3)
+  # ---------------------------------------------------------------------------
+
+  # Chạy một lần trước NameNode/DataNode: volume Docker mới tạo thuộc root, còn HDFS trong image chạy bằng
+  # user hadoop (uid 1000) -> đổi chủ sở hữu, nếu không HDFS không ghi được (lỗi quyền kinh điển).
+  hdfs-init:
+    profiles: ["hdfs"]
+    image: ${HADOOP_IMAGE:-apache/hadoop:3.4.3}
+    container_name: hdfs-init
+    user: root
+    entrypoint: ["sh", "-c", "chown -R hadoop:users /vol/namenode /vol/datanode1 /vol/datanode2"]
+    volumes:
+      - hdfs-namenode:/vol/namenode
+      - hdfs-datanode1:/vol/datanode1
+      - hdfs-datanode2:/vol/datanode2
+    restart: "no"
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+
+  namenode:
+    profiles: ["hdfs"]
+    image: ${HADOOP_IMAGE:-apache/hadoop:3.4.3}
+    container_name: namenode
+    hostname: namenode
+    restart: unless-stopped
+    depends_on:
+      hdfs-init:
+        condition: service_completed_successfully
+    # Format MỘT LẦN DUY NHẤT: chỉ khi chưa có metadata (file VERSION). -nonInteractive để nếu lỡ chạy lại
+    # trên thư mục đã có dữ liệu thì dừng chứ không ghi đè. Không dùng ENSURE_NAMENODE_DIR của image vì
+    # script đó truyền sai tham số -clusterid.
+    command:
+      - bash
+      - -c
+      - |
+        if [ ! -f /hadoop/dfs/name/current/VERSION ]; then
+          hdfs namenode -format -nonInteractive -clusterid "$${HDFS_CLUSTER_ID}"
+        fi
+        exec hdfs namenode
+    ports:
+      - "127.0.0.1:9870:9870"           # web UI NameNode: http://localhost:9870
+      - "127.0.0.1:8020:8020"           # RPC, cho client chạy trong WSL nếu cần
+    environment: &hdfs-env
+      HDFS_CLUSTER_ID: ${HDFS_CLUSTER_ID:?set HDFS_CLUSTER_ID in infra/.env}
+      HADOOP_HEAPSIZE_MAX: ${NAMENODE_HEAP:-512m}
+      # Image tự đổi biến dạng <FILE>.XML_<key> thành file cấu hình XML
+      CORE-SITE.XML_fs.defaultFS: hdfs://namenode:8020
+      HDFS-SITE.XML_dfs.replication: "2"
+      HDFS-SITE.XML_dfs.namenode.name.dir: /hadoop/dfs/name
+      HDFS-SITE.XML_dfs.datanode.data.dir: /hadoop/dfs/data
+      # Nghe trên mọi địa chỉ của container, không chỉ hostname
+      HDFS-SITE.XML_dfs.namenode.rpc-bind-host: 0.0.0.0
+      HDFS-SITE.XML_dfs.namenode.http-bind-host: 0.0.0.0
+      HDFS-SITE.XML_dfs.namenode.servicerpc-bind-host: 0.0.0.0
+      # DataNode trong Docker đăng ký bằng IP mạng nội bộ, không phân giải ngược ra tên -> tắt kiểm tra
+      HDFS-SITE.XML_dfs.namenode.datanode.registration.ip-hostname-check: "false"
+      # Cụm thử nghiệm 1 người dùng: tắt kiểm tra quyền HDFS để Spark (user khác) ghi được vào /datalake.
+      # Đây là giới hạn của môi trường lab, ghi vào báo cáo.
+      HDFS-SITE.XML_dfs.permissions.enabled: "false"
+    volumes:
+      - hdfs-namenode:/hadoop/dfs
+    deploy:
+      resources:
+        limits:
+          memory: ${NAMENODE_MEM_LIMIT:-768m}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9870/ > /dev/null"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+
+  datanode1:
+    profiles: ["hdfs"]
+    image: ${HADOOP_IMAGE:-apache/hadoop:3.4.3}
+    container_name: datanode1
+    hostname: datanode1
+    restart: unless-stopped
+    depends_on:
+      namenode:
+        condition: service_healthy
+    command: ["hdfs", "datanode"]
+    environment:
+      <<: *hdfs-env
+      HADOOP_HEAPSIZE_MAX: ${DATANODE_HEAP:-384m}
+    volumes:
+      - hdfs-datanode1:/hadoop/dfs
+    deploy:
+      resources:
+        limits:
+          memory: ${DATANODE_MEM_LIMIT:-512m}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9864/ > /dev/null"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  datanode2:
+    profiles: ["hdfs"]
+    image: ${HADOOP_IMAGE:-apache/hadoop:3.4.3}
+    container_name: datanode2
+    hostname: datanode2
+    restart: unless-stopped
+    depends_on:
+      namenode:
+        condition: service_healthy
+    command: ["hdfs", "datanode"]
+    environment:
+      <<: *hdfs-env
+      HADOOP_HEAPSIZE_MAX: ${DATANODE_HEAP:-384m}
+    volumes:
+      - hdfs-datanode2:/hadoop/dfs
+    deploy:
+      resources:
+        limits:
+          memory: ${DATANODE_MEM_LIMIT:-512m}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9864/ > /dev/null"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  # ---------------------------------------------------------------------------
+  # Spark standalone (đợt 3): 1 master + 1 worker (README-2A mục 3, 9)
+  # Job KHÔNG chạy trong master: mỗi job là một container driver riêng do spark/submit.sh tạo,
+  # có giới hạn RAM riêng, để job streaming chạy 24/7 không chung bộ nhớ với master.
+  # ---------------------------------------------------------------------------
+
+  spark-master:
+    profiles: ["spark"]
+    image: ${SPARK_IMAGE:-apache/spark:3.5.8-scala2.12-java17-python3-ubuntu}
+    container_name: spark-master
+    hostname: spark-master
+    restart: unless-stopped
+    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.master.Master",
+              "--host", "spark-master", "--port", "7077", "--webui-port", "8080"]
+    environment:
+      SPARK_DAEMON_MEMORY: 256m
+    ports:
+      - "127.0.0.1:8080:8080"           # Master UI: http://localhost:8080 (worker, job đang chạy)
+    deploy:
+      resources:
+        limits:
+          memory: ${SPARK_MASTER_MEM_LIMIT:-512m}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/ > /dev/null"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+
+  spark-worker:
+    profiles: ["spark"]
+    image: ${SPARK_IMAGE:-apache/spark:3.5.8-scala2.12-java17-python3-ubuntu}
+    container_name: spark-worker
+    hostname: spark-worker
+    restart: unless-stopped
+    depends_on:
+      spark-master:
+        condition: service_healthy
+    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.worker.Worker",
+              "spark://spark-master:7077", "--webui-port", "8081"]
+    environment:
+      SPARK_DAEMON_MEMORY: 256m
+      # Tài nguyên worker chia cho các executor. Job streaming chạy 24/7 lấy 1 core,
+      # phần còn lại cho batch (rebuild_silver) chạy đêm.
+      SPARK_WORKER_CORES: ${SPARK_WORKER_CORES:-4}
+      SPARK_WORKER_MEMORY: ${SPARK_WORKER_MEMORY:-1536m}
+      SPARK_WORKER_DIR: /opt/spark/work-dir/worker
+      # Dọn thư mục làm việc của các job đã xong sau 1 ngày, tránh đầy đĩa
+      SPARK_WORKER_OPTS: -Dspark.worker.cleanup.enabled=true -Dspark.worker.cleanup.appDataTtl=86400
+      # Code của repo (common/normalize.py...) mount vào /app cho executor Python import được
+      PYTHONPATH: /app
+    ports:
+      - "127.0.0.1:8081:8081"           # Worker UI
+    volumes:
+      - ..:/app:ro                      # thư mục crawler/, chỉ đọc
+      - spark-work:/opt/spark/work-dir  # thư mục đã có sẵn trong image, volume giữ đúng chủ sở hữu spark
+    deploy:
+      resources:
+        limits:
+          # SPARK_WORKER_MEMORY + phần ngoài heap của executor + tiến trình Python
+          memory: ${SPARK_WORKER_MEM_LIMIT:-3g}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8081/ > /dev/null"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+
 volumes:
   kafka-data:
+  hdfs-namenode:
+  hdfs-datanode1:
+  hdfs-datanode2:
+  spark-work:                           # ivy cache (package Kafka/Delta tải 1 lần) + thư mục làm việc
