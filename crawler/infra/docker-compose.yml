@@ -1,0 +1,62 @@
+# Hạ tầng giai đoạn 2 (README-2A mục 3, 5). Bật theo đợt bằng profile, KHÔNG bật tất cả cùng lúc:
+#   docker compose --profile kafka up -d      # đợt 1 (bước 3)
+#   docker compose --profile hdfs up -d       # đợt 2 (bước 5, chưa có)
+#   docker compose --profile spark up -d      # đợt 3 (bước 7, chưa có)
+# Chạy trong thư mục crawler/infra/. Biến ${...} lấy từ infra/.env (chép từ .env.example).
+#
+# Mọi service PHẢI có deploy.resources.limits.memory: máy 16 GB, crawler chạy native bên ngoài Docker
+# và là tiến trình quan trọng nhất, Docker không được ăn tới mức OOM killer giết crawler.
+
+name: bigdata                           # tiền tố tên mạng và volume: bigdata_default, bigdata_kafka-data
+
+services:
+  kafka:
+    profiles: ["kafka"]
+    image: ${KAFKA_IMAGE:-apache/kafka:3.9.1}
+    container_name: kafka               # để gọi gọn: docker exec kafka ...
+    hostname: kafka
+    restart: unless-stopped             # tự bật lại khi WSL khởi động; dừng tay (docker stop) thì giữ nguyên
+    ports:
+      - "127.0.0.1:9092:9092"           # chỉ mở cho máy này, không mở ra mạng LAN
+    environment:
+      # KRaft 1 node: vừa là broker vừa là controller, không cần ZooKeeper
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      CLUSTER_ID: ${KAFKA_CLUSTER_ID:?set KAFKA_CLUSTER_ID in infra/.env}
+      # Hai listener (README-2A mục 3):
+      #   HOST     localhost:9092 cho tiến trình chạy trong WSL (crawler, replay_producer, test)
+      #   INTERNAL kafka:29092    cho container cùng mạng Docker (Spark)
+      # Thiếu INTERNAL thì Spark kết nối được lần đầu rồi bị trả về localhost của chính container nó.
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,HOST://0.0.0.0:9092,CONTROLLER://kafka:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,HOST:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      # Chỉ 1 broker nên mọi topic nội bộ phải có replication 1
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_MIN_INSYNC_REPLICAS: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      # Topic chỉ được tạo bằng kafka/create_topics.sh, gõ sai tên topic thì báo lỗi chứ không tự tạo
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      # Heap JVM nhỏ hơn giới hạn container, phần còn lại cho page cache và bộ nhớ ngoài heap
+      KAFKA_HEAP_OPTS: -Xms${KAFKA_HEAP:-512m} -Xmx${KAFKA_HEAP:-512m}
+    volumes:
+      - kafka-data:/var/lib/kafka/data  # named volume, không bind mount (tránh lỗi quyền giữa WSL và container)
+    deploy:
+      resources:
+        limits:
+          memory: ${KAFKA_MEM_LIMIT:-1g}
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+volumes:
+  kafka-data:
