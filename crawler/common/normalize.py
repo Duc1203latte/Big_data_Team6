@@ -28,6 +28,9 @@ MISSING_PRODUCT_ID = "MISSING_PRODUCT_ID"
 BAD_TIMESTAMP = "BAD_TIMESTAMP"
 UNKNOWN_PLATFORM = "UNKNOWN_PLATFORM"
 PRICE_OUT_OF_RANGE = "PRICE_OUT_OF_RANGE"
+# Dòng không đọc được thành JSON object (ví dụ dòng cuối bị cắt khi crawler chết giữa chừng).
+# validate không trả mã này (chưa có event để kiểm tra); job đọc dòng thô tự gán rồi đưa vào quarantine.
+BAD_JSON = "BAD_JSON"
 
 # flags: bản ghi hợp lệ nhưng thiếu dữ liệu -> vẫn vào Silver, ghi vào cột dq_flags
 MISSING_PRICE = "MISSING_PRICE"
@@ -222,7 +225,6 @@ def normalize_price(event: dict) -> tuple[dict | None, list[str]]:
 
 def normalize_product(event: dict) -> tuple[dict | None, list[str]]:
     """Một product event (dict) -> (dòng silver_product, errors). Cách dùng giống normalize_price.
-
     specs_raw (dict) đổi thành chuỗi JSON, sắp xếp key để cùng dữ liệu luôn ra cùng chuỗi.
     """
     # Product event không có giá nên validate không bao giờ trả flags ở đây

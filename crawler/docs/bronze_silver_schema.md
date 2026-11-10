@@ -24,6 +24,16 @@ python -m jobs.build_silver_sample --date-from 2026-11-05 --date-to 2026-11-07
 
 Khác Silver thật đúng 2 cột: `ingest_time = null`, `ingest_source = "sample"`. Khi Silver thật lên HDFS, job Gold **chỉ đổi đường dẫn đọc**.
 
+### Silver thật (HDFS, `jobs/rebuild_silver.py`)
+
+| Bảng | Đường dẫn |
+| --- | --- |
+| `silver_price` | `/datalake/silver/price` |
+| `silver_product` | `/datalake/silver/product` |
+| quarantine | `/datalake/quarantine/<price\|product>` |
+
+`ingest_source` là `live` (crawler gửi thẳng vào Kafka) hoặc `replay` (nạp lại từ `landing/`). Quarantine thật thay cột `source_file` của bản mẫu bằng vị trí Kafka: `kafka_partition`, `kafka_offset`, cùng `ingest_time`, `ingest_source`.
+
 ### Cách đọc
 
 Bảng là **Delta Lake** (protocol reader 1 / writer 2, Spark Delta 3.x đọc được).
@@ -52,6 +62,7 @@ pdf = DeltaTable("datalake_local/silver_sample/price").to_pandas()
 | `kafka_key` | string | `platform:product_id` |
 | `topic`, `kafka_partition`, `kafka_offset`, `kafka_timestamp` | | vị trí message trong Kafka |
 | `ingest_time` | timestamp | lúc ghi xuống Bronze |
+| `ingest_source` | string | `live` / `replay`, từ header Kafka. Không có ở Bronze ghi trước 10/11/2026: Silver suy theo mốc chuyển crawler sang Kafka (2026-11-09T15:28:38Z) |
 | `platform`, `date`, `hour` | string | partition, `date`/`hour` lấy từ `event_time` (UTC) |
 
 Bronze **có thể có bản trùng** (replay chạy 2 lần). Silver mới là nơi bỏ trùng.

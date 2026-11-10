@@ -30,14 +30,11 @@ import orjson
 import pyarrow as pa
 from deltalake import DeltaTable, write_deltalake
 
-from common.normalize import normalize_price, normalize_product
+from common.normalize import BAD_JSON, normalize_price, normalize_product
 
 logger = logging.getLogger("build_silver_sample")
 
 INGEST_SOURCE = "sample"
-# Dòng không đọc được JSON (ví dụ dòng cuối bị cắt khi crawler chết giữa chừng).
-# Không thuộc validate vì chưa có event nào để kiểm tra; vẫn vào quarantine để đếm.
-BAD_JSON = "BAD_JSON"
 # Đổi dict sang Arrow theo từng lô, để không giữ cả ngày (~280.000 dict) trong RAM cùng lúc
 BATCH_ROWS = 50_000
 
