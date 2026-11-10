@@ -14,7 +14,7 @@
 # ngày đã xong, lần sau tự làm bù.
 #
 # Dùng (trong thư mục crawler/):
-#   bash spark/nightly_batch.sh            # chạy thật
+#   bash spark/nightly_batch.sh            # chạy thật (xong thì gọi export_for_team.sh đóng gói gửi nhóm)
 #   bash spark/nightly_batch.sh --dry-run  # chỉ in khoảng ngày sẽ chạy
 
 set -euo pipefail
@@ -65,3 +65,10 @@ bash spark/submit.sh --name nightly-batch --ui-port 4042 --mem 1536m \
   jobs/rebuild_silver.py --date-from "$DATE_FROM" --date-to "$DATE_TO"
 echo "$DATE_TO" > "$STATE_FILE"
 log "done $DATE_FROM .. $DATE_TO in $(( $(date +%s) - START ))s"
+
+# Đóng gói Silver + landing/ mới gửi nhóm (exports/data_YYYYMMDD.tar.gz). Lỗi ở đây không ảnh hưởng Silver
+# đã dựng xong ở trên; chạy lại tay: bash spark/export_for_team.sh
+if ! bash spark/export_for_team.sh; then
+  log "ERROR: export_for_team failed"
+  exit 1
+fi

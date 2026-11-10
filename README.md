@@ -77,55 +77,62 @@ Hai nguyên tắc xuyên suốt, tầng nào cũng phải giữ:
 
 ### 4.2. Cách lấy dữ liệu để phát triển
 
-HDFS chỉ mở cổng cho máy chính, máy khác không nối thẳng vào được. Thành viên khác làm việc trên **bản sao** do người giữ máy chính xuất ra (cách xuất ở mục 7) và để trên Drive của nhóm.
+HDFS chỉ mở cổng cho máy chính, máy khác không nối thẳng vào được. Thành viên khác làm việc trên **bản sao** do máy chính tự đóng gói mỗi sáng (mục 7) và đưa lên Drive của nhóm:
 
-**Bước 1. Tải đúng file trên Drive.**
+**Drive dữ liệu: https://drive.google.com/drive/folders/1Sr4t0evhgkbKsQN8cgKpmJM1x1eazA6G**
 
-| Ai | File | Bên trong |
+**Bước 1. Tải gói mới nhất trên Drive:** `data_YYYYMMDD.tar.gz` (YYYYMMDD là ngày đóng gói, ví dụ `data_20261111.tar.gz`, khoảng 150 MB). Một gói có đủ phần cho mọi người:
+
+| Thư mục trong gói | Cho ai | Nội dung |
 | --- | --- | --- |
-| Thành viên 2 (Gold), ai cần phân tích | `silver_YYYYMMDD.tar.gz` (ví dụ `silver_20261110.tar.gz`, ~120 MB) | 2 bảng Delta `price/` và `product/`, dữ liệu tới hết ngày trước ngày xuất |
-| Người làm speed layer | `landing_YYYY-MM-DD.tar.gz`, mỗi file 1 ngày (~20–30 MB) | File JSONL gốc của crawler, dùng để bơm vào Kafka (mục 7.2) |
+| `silver/` | Thành viên 2 (Gold), ai cần phân tích | **Nguyên bảng** Silver `price/` và `product/` (Delta), dữ liệu từ 01/11 tới hết ngày trước ngày đóng gói. Chỉ cần gói mới nhất |
+| `landing/` | Người làm speed layer | File JSONL gốc của crawler, **chỉ những ngày mới** kể từ gói trước. Cần giữ đủ các gói để có đủ các ngày |
+| `MANIFEST.txt` | Mọi người | Số dòng từng bảng, từng ngày, để kiểm tra |
 
-Tên file Silver là **ngày xuất**: `silver_20261110` chứa dữ liệu 01/11 tới hết 09/11.
+Dữ liệu ngày 01–09/11 gửi lần đầu theo kiểu cũ, là các file riêng `silver_20261110.tar.gz` và `landing_2026-11-DD.tar.gz` (cách dùng ở cuối mục 7).
 
 **Bước 2. Giải nén.** File `.tar.gz` là thư mục được nén. Giải nén bằng lệnh `tar` (có sẵn trên WSL/Linux/macOS và Windows 10 trở lên):
 
 ```bash
 # WSL / Linux / macOS
 mkdir -p ~/data
-tar xzf silver_20261110.tar.gz -C ~/data
+tar xzf data_20261111.tar.gz -C ~/data
 ```
 
 ```powershell
 # Windows (PowerShell hoặc cmd), thư mục đích phải có sẵn
 mkdir D:\data
-tar -xzf silver_20261110.tar.gz -C D:\data
+tar -xzf data_20261111.tar.gz -C D:\data
 ```
 
 Kết quả:
 
 ```
-data/silver_20261110/
-├── price/                     # bảng silver_price
-│   ├── _delta_log/            # nhật ký Delta, BẮT BUỘC giữ nguyên
-│   └── date=2026-11-01/platform=tiki/part-*.parquet ...
-└── product/                   # bảng silver_product
-    ├── _delta_log/
-    └── platform=tiki/part-*.parquet ...
+data/data_20261111/
+├── MANIFEST.txt
+├── silver/
+│   ├── price/                 # bảng silver_price
+│   │   ├── _delta_log/        # nhật ký Delta, BẮT BUỘC giữ nguyên
+│   │   └── date=2026-11-01/platform=tiki/part-*.parquet ...
+│   └── product/               # bảng silver_product
+│       ├── _delta_log/
+│       └── platform=tiki/part-*.parquet ...
+└── landing/
+    ├── price/platform=tiki/date=2026-11-10/hour=00/*.jsonl ...
+    └── product/...
 ```
 
 Lưu ý khi giải nén:
-- Giữ nguyên cấu trúc thư mục. **Không** đổi tên, xoá hay chép riêng file nào trong `price/`, `product/`, nhất là `_delta_log/`. Thiếu nhật ký thì bảng không đọc được, hoặc đọc ra sai.
+- Giữ nguyên cấu trúc thư mục. **Không** đổi tên, xoá hay chép riêng file nào trong `silver/price/`, `silver/product/`, nhất là `_delta_log/`. Thiếu nhật ký thì bảng không đọc được, hoặc đọc ra sai.
 - Không giải nén bằng cách mở file trong File Explorer rồi kéo thả từng phần. Dùng lệnh `tar` ở trên.
-- Có bản mới thì **xoá cả thư mục bản cũ** rồi giải nén bản mới, không giải nén đè lên bản cũ. Sau đó đổi đường dẫn trong code sang thư mục mới.
-- Gói `landing_*.tar.gz` thì khác: giải nén **ngay trong thư mục `crawler/`** của repo để file vào đúng `landing/` (mục 7.2).
+- Gói mới về thì **xoá cả thư mục gói cũ** rồi giải nén gói mới, không giải nén đè. Sau đó đổi đường dẫn trong code sang thư mục mới. Người làm speed layer chép phần `landing/` ra trước khi xoá (mục 7).
 
-**Bước 3. Kiểm tra đã giải nén đúng.** Số dòng phải khớp với số người gửi báo (bản `silver_20261110`: price 2.096.994, product 6.822):
+**Bước 3. Kiểm tra đã giải nén đúng.** Mở `MANIFEST.txt` xem số dòng, rồi đếm lại:
 
 ```python
 from deltalake import DeltaTable
 for t in ("price", "product"):
-    print(t, DeltaTable(f"data/silver_20261110/{t}").to_pyarrow_table().num_rows)
+    print(t, DeltaTable(f"data/data_20261111/silver/{t}").to_pyarrow_table().num_rows)
 ```
 
 **Bước 4. Đọc dữ liệu.**
@@ -135,14 +142,14 @@ for t in ("price", "product"):
 from datetime import date
 from deltalake import DeltaTable
 
-price = DeltaTable("data/silver_20261110/price")
+price = DeltaTable("data/data_20261111/silver/price")
 df = price.to_pandas(filters=[("date", "=", date(2026, 11, 9)), ("platform", "=", "tiki")])  # date là kiểu date, không phải chuỗi
-product = DeltaTable("data/silver_20261110/product").to_pandas()
+product = DeltaTable("data/data_20261111/silver/product").to_pandas()
 ```
 
 ```python
 # Spark 3.5 + package io.delta:delta-spark_2.12:3.3.2
-df = spark.read.format("delta").load("data/silver_20261110/price").where("date = '2026-11-09'")
+df = spark.read.format("delta").load("data/data_20261111/silver/price").where("date = '2026-11-09'")
 ```
 
 Chưa có bản sao thì dùng ngay Silver mẫu trong `crawler/datalake_local/silver_sample/` (ngày 05–07/11, cùng schema). Code viết trên bản mẫu hay bản sao, sang Silver thật **chỉ đổi đường dẫn**.
@@ -161,7 +168,7 @@ Chưa có bản sao thì dùng ngay Silver mẫu trong `crawler/datalake_local/s
 - Header `ingest_source` cho biết event là `live` hay `replay`.
 - Dùng lại `common/normalize.py` để làm sạch từng event, giống batch.
 - Ghi cảnh báo vào topic `alerts.price` (đã tạo sẵn: 3 partition, giữ 7 ngày).
-- Speed layer cần Kafka **trực tiếp**, bản sao file không thay được. Khi phát triển trên máy riêng: tự dựng Kafka (mục 5.2, chỉ cần bước Kafka), nhận `landing/` (mục 7.2), rồi bơm vào bằng `replay_producer --rate`. Chạy thật thì chạy trên máy chính, hoặc nối mạng tới Kafka của máy chính (nhóm cần chốt).
+- Speed layer cần Kafka **trực tiếp**, bản sao file không thay được. Khi phát triển trên máy riêng: tự dựng Kafka (mục 5.2, chỉ cần bước Kafka), lấy `landing/` trong gói dữ liệu hằng ngày (mục 4.2, mục 7), rồi bơm vào bằng `replay_producer --rate`. Chạy thật thì chạy trên máy chính, hoặc nối mạng tới Kafka của máy chính (nhóm cần chốt).
 - Tuần 5 kiểm thử tải cũng bằng `replay_producer --rate <số event/giây>`.
 
 ## 5. Cài đặt
@@ -279,6 +286,7 @@ Có sẵn `landing/` cũ (ví dụ chép từ máy khác) thì nạp vào Kafka 
 | Bronze có chạy không | `docker logs --tail 5 kafka-to-bronze` |
 | Lịch chạy đêm | `tail logs/nightly_batch.log`, ngày đã dựng xong: `cat state/nightly_batch_last_day.txt` |
 | Dựng lại Silver tay | `bash spark/submit.sh --mem 1536m jobs/rebuild_silver.py --date 2026-11-09` |
+| Đóng gói dữ liệu gửi nhóm | tự chạy sau lịch đêm; chạy tay: `bash spark/export_for_team.sh` (mục 7) |
 | Message crawler gửi Kafka bị lỗi | `python -m jobs.replay_producer --failed` (gửi lại `state/kafka_failed/`) |
 
 **Tắt cụm để lấy RAM** (crawler và Kafka vẫn chạy):
@@ -306,43 +314,55 @@ Kafka giữ dữ liệu 3 ngày, nên tắt cụm dưới 3 ngày thì Bronze t�
 
 ## 7. Cập nhật dữ liệu cho thành viên khác
 
-Silver tự cập nhật lúc 07:30 sáng. Xuất **sau 07:30** để có đủ dữ liệu hôm qua (kiểm tra dòng `done` cuối cùng trong `logs/nightly_batch.log`).
+**Drive dữ liệu: https://drive.google.com/drive/folders/1Sr4t0evhgkbKsQN8cgKpmJM1x1eazA6G**
 
-### 7.1. Bản sao Silver (cho thành viên 2 làm Gold, và ai cần phân tích)
+### 7.1. Máy chính: tự đóng gói mỗi sáng
 
-Mỗi lần gửi **nguyên bảng**, không gửi phần thêm: bảng Delta gồm file dữ liệu cộng nhật ký `_delta_log`, chép ghép từng phần sẽ hỏng bảng. Hiện bản nén khoảng 120 MB, mỗi ngày tăng khoảng 15 MB.
+Sau khi dựng Silver lúc 07:30, `spark/nightly_batch.sh` tự gọi `spark/export_for_team.sh` để đóng gói **một file** `crawler/exports/data_YYYYMMDD.tar.gz` (khoảng 150 MB, xong khoảng 07:33). Gói gồm:
 
-```bash
-cd crawler
-D=silver_$(date +%Y%m%d)
-docker exec namenode mkdir /tmp/$D
-docker exec namenode hdfs dfs -get /datalake/silver/price /datalake/silver/product /tmp/$D/
-docker cp namenode:/tmp/$D exports/$D
-docker exec namenode rm -r /tmp/$D
-tar czf exports/$D.tar.gz -C exports $D        # gửi file này qua Drive
-```
+- `silver/`: nguyên bảng Silver. Bảng Delta gồm file dữ liệu cộng nhật ký `_delta_log`, chép ghép từng phần sẽ hỏng bảng, nên luôn gửi nguyên bảng.
+- `landing/`: những ngày UTC đã xong mà chưa gửi lần trước. Ngày đã gửi ghi trong `state/export_last_landing_day.txt`.
+- `MANIFEST.txt`: số dòng để người nhận đối chiếu.
 
-Người nhận làm theo mục 4.2: tải, giải nén, kiểm tra số dòng, đọc. Khi gửi, báo kèm số dòng price và product để người nhận đối chiếu (xem bằng đoạn kiểm tra ở mục 4.2, bước 3). Bản sao chỉ để đọc. Kết quả Gold không ghi ngược vào đó mà chạy lại trên máy chính (mục 4.3).
+Thư mục `exports/` chỉ giữ 3 gói mới nhất, gói cũ hơn tự xoá.
 
-### 7.2. `landing/` theo ngày (cho người làm speed layer, kiểm thử tải)
-
-Dùng khi người nhận cần **luồng event** để bơm vào Kafka của họ. Mỗi ngày khoảng 200 MB, nén còn khoảng 25 MB. Chỉ gửi những ngày UTC đã xong (hôm qua trở về trước).
+**Việc của người giữ máy chính mỗi ngày:** kiểm tra log rồi tải gói lên Drive.
 
 ```bash
 cd crawler
-N=2026-11-09
-tar czf exports/landing_$N.tar.gz landing/price/platform=*/date=$N landing/product/platform=*/date=$N
+tail -2 logs/nightly_batch.log      # dòng cuối phải là "export_for_team: done exports/data_YYYYMMDD.tar.gz ..."
 ```
 
-Người nhận, trong thư mục `crawler/` của họ, với Kafka đã dựng (mục 5.2, bước Kafka):
+Tải file lên thư mục Drive ở trên. Từ Windows, mở thư mục gói ở `\\wsl$\Ubuntu\home\<user>\projects\bigdata-crawler\crawler\exports`. Gói trên Drive cũ quá thì xoá bớt, nhưng **giữ các gói còn `landing/` mà người làm speed layer chưa lấy**.
+
+Hôm nào lịch tự động không chạy (cụm tắt lúc 07:30), sau khi bật cụm thì chạy tay:
 
 ```bash
-tar xzf landing_2026-11-09.tar.gz              # tự vào đúng landing/<loại>/platform=/date=/
-python -m jobs.replay_producer --date-from 2026-11-09 --date-to 2026-11-09 --rate 50
+bash spark/nightly_batch.sh         # dựng bù Silver rồi tự đóng gói
+bash spark/export_for_team.sh       # hoặc chỉ đóng gói lại, khi Silver đã xong
+```
+
+### 7.2. Người nhận
+
+**Thành viên 2 (Gold):** chỉ cần gói mới nhất. Làm theo mục 4.2.
+
+**Người làm speed layer:** mỗi gói chỉ có `landing/` của các ngày mới, nên phải gom dần vào thư mục `crawler/landing/` của repo trên máy mình. Kafka đã dựng theo mục 5.2 (chỉ phần Kafka). Ví dụ:
+
+```bash
+cd crawler                                              # thư mục crawler/ của repo
+tar xzf ~/Downloads/data_20261111.tar.gz -C /tmp
+cp -r /tmp/data_20261111/landing/. landing/             # gom vào landing/, các ngày không đè nhau
+cat /tmp/data_20261111/MANIFEST.txt                     # xem gói có những ngày nào
+python -m jobs.replay_producer --date-from 2026-11-10 --date-to 2026-11-10 --rate 50
 ```
 
 - `replay_producer` giữ nguyên `event_id` và `event_time`, gắn `ingest_source=replay`.
-- Nó nhớ file đã gửi (`state/replay_progress.json`), nên giải nén thêm ngày mới rồi chạy lại chỉ gửi phần mới.
+- Nó nhớ file đã gửi (`state/replay_progress.json`), nên gom thêm ngày mới rồi chạy lại chỉ gửi phần mới.
 - `--rate` chỉnh tốc độ để giả lập luồng chậm hay dồn dập.
+- Bỏ qua cảnh báo "No --until given": máy không có crawler chạy thật nên không bị trùng.
+
+**Gói gửi lần đầu (01–09/11, kiểu cũ):**
+- `silver_20261110.tar.gz` giải nén ra `silver_20261110/price` và `silver_20261110/product`, đọc như mục 4.2.
+- `landing_2026-11-DD.tar.gz` giải nén **ngay trong thư mục `crawler/`** là file tự vào `landing/`.
 
 **Chỉ một crawler chạy thật, là crawler của máy chính.** Thành viên khác không tự crawl song song: gấp đôi request dễ bị sàn chặn, và hai bộ dữ liệu crawl cùng giờ sẽ thành các quan sát trùng nhau với `event_id` khác nhau.
