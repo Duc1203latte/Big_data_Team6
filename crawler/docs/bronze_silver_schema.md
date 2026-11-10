@@ -39,7 +39,7 @@ Khác Silver thật đúng 2 cột: `ingest_time = null`, `ingest_source = "samp
 Bảng là **Delta Lake** (protocol reader 1 / writer 2, Spark Delta 3.x đọc được).
 
 ```python
-# Spark (cần package io.delta:delta-spark_2.12:3.2.x)
+# Spark 3.5 (cần package io.delta:delta-spark_2.12:3.3.2, cùng bản cụm đang dùng)
 df = spark.read.format("delta").load("datalake_local/silver_sample/price")
 df.where("date = '2026-11-06' AND platform = 'tiki'")
 

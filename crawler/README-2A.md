@@ -2,6 +2,8 @@
 
 Spec cho giai đoạn 2 của dự án Lưu trữ và Xử lý Dữ liệu lớn, tiếp nối `README.md` (giai đoạn 1, crawler). Toàn bộ code giai đoạn 2 nằm trong thư mục `crawler/` này, dùng chung `common/` và `.venv` với crawler.
 
+> **Trạng thái: xong ngày 10/11/2026.** Phần dưới là spec viết trước khi làm, giữ nguyên để đối chiếu. Những chỗ làm thực tế khác spec được ghi chú ngay tại chỗ (đánh dấu **Thực tế:**). Kết quả và số liệu đã kiểm chứng ở **mục 14**. Hướng dẫn cài đặt, vận hành và gửi dữ liệu cho nhóm ở `README.md` gốc của repo.
+
 ## Quy ước code
 
 Comment chi tiết bằng tiếng Việt. Tên biến, tên hàm, log message bằng tiếng Anh. **Tên trường luôn theo `common/schema.py`** (ví dụ `event_time`, `rating_avg`), không tự đặt tên mới cho cùng một thứ.
@@ -85,11 +87,15 @@ Thiếu listener thứ hai là lỗi kinh điển: Spark kết nối được l�
 
 HDFS trong Docker hay vỡ ở mấy chỗ: format NameNode nhiều lần, hostname không phân giải được giữa container, permission `/datalake`. Làm đúng thứ tự: NameNode format một lần duy nhất, dùng named volume chứ không bind mount, đặt `dfs.replication=2`, kiểm tra `hdfs dfsadmin -report` thấy đủ 2 DataNode mới đi tiếp.
 
+**Thực tế:** `dfs.replication` là cấu hình **phía ghi**, đặt ở NameNode chưa đủ. Spark không đặt thì ghi mọi file với 3 bản sao, cụm 2 DataNode không bao giờ đủ nên HDFS báo thiếu bản sao mãi. Đã thêm `spark.hadoop.dfs.replication 2` vào `spark/conf/spark-defaults.conf` và hạ file cũ bằng `hdfs dfs -setrep -R 2 /datalake /checkpoints`.
+
 Nếu HDFS ăn quá nhiều RAM hoặc dựng mãi không xong thì MinIO thay được (S3A, Spark và Delta đọc ghi bình thường, nhẹ hơn nhiều). Nhưng proposal và sơ đồ kiến trúc đã ghi HDFS nên phải thống nhất với nhóm trước khi đổi, và nếu đổi thì ghi rõ lý do để đưa vào báo cáo.
 
 ### Spark
 
 Mặc định theo proposal: cluster 1 master + 1 worker trong Docker, job nộp bằng `spark/submit.sh` (chạy `spark-submit` trong container, code mount vào). Phương án dự phòng nếu thiếu RAM: chạy Spark **local mode** trong WSL (cần Java 17 và `pyspark`, nhẹ hơn ~1,5 GB, nhưng không có cluster để trình bày). Chốt ở bước 7.
+
+**Thực tế:** chọn cluster (1 master + 1 worker, 4 core, 1,5 GB cho executor). Mỗi job chạy driver trong một container riêng do `spark/submit.sh` tạo, có giới hạn RAM riêng (`--mem`, mặc định 1 GB).
 
 ## 4. Bước 0 — Báo cáo môi trường trước khi code
 
@@ -148,6 +154,8 @@ crawler/
 │   └── build_silver_sample.py      # MỚI — tháo chặn thành viên 2, xem 10.4
 ├── spark/
 │   ├── submit.sh                   # wrapper spark-submit, gắn sẵn package
+│   ├── nightly_batch.sh            # THỰC TẾ — lịch chạy đêm (cron), xem 10.3
+│   ├── smoke.py                    # THỰC TẾ — job thử cụm ở bước 7
 │   └── conf/spark-defaults.conf
 ├── tests/
 │   ├── fixtures/normalize/         # MỚI — dòng JSONL thật của từng sàn
@@ -294,10 +302,10 @@ Chốt cặp phiên bản rồi không đổi, lệch là vỡ:
 
 | Thành phần | Phiên bản |
 | --- | --- |
-| Spark | 3.5.x |
+| Spark | 3.5.x (**thực tế: 3.5.8**, image `apache/spark:3.5.8-scala2.12-java17-python3-ubuntu`) |
 | Scala | 2.12 |
-| Kafka connector | `org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.x` |
-| Delta | `io.delta:delta-spark_2.12` 3.2.x (dùng ở 2B) |
+| Kafka connector | `org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.x` (**thực tế: 3.5.8**) |
+| Delta | `io.delta:delta-spark_2.12` 3.2.x (dùng ở 2B) (**thực tế: 3.3.2**, bản hỗ trợ Spark 3.5) |
 | Hadoop client | khớp với version HDFS trong compose |
 
 Kiểm tra lại cặp Spark và Delta trên trang tương thích của Delta trước khi cài, đừng tin con số trong file này. Gắn package qua `--packages` trong `spark/submit.sh`, không tải jar tay.
@@ -333,6 +341,12 @@ out = df.select(
 Cột partition `date` và `hour` lấy từ `event_time` (UTC, dạng `2026-11-08T07:49:05Z`), **không lấy từ `ingest_time`**. Lý do: replay dữ liệu cũ phải rơi vào đúng ngày gốc của nó, không dồn hết vào ngày chạy replay. Đây cũng chính là partition của `landing/`, nên đối chiếu từng giờ được.
 
 Nếu `platform` hoặc `event_time` không đọc được thì vào `platform=_unknown/date=_unknown/`, không làm chết job.
+
+**Thực tế** (`jobs/kafka_to_bronze.py`), khác đoạn code trên ở mấy chỗ:
+- `date`/`hour` chỉ cắt khi `event_time` đúng khuôn `YYYY-MM-DDTHH`, nếu không thì `_unknown` (tránh partition rác).
+- Thêm cột `ingest_source` (`live`/`replay`) đọc từ header Kafka (`includeHeaders=true`). Bronze ghi trước 10/11 không có cột này; Silver suy theo mốc chuyển sink.
+- `repartition("platform", "date", "hour")` trước khi ghi: mỗi micro-batch chỉ ra 1 file cho mỗi partition Bronze.
+- Khi đọc Bronze phải tắt suy kiểu partition (`hour=07` bị đọc thành số 7) hoặc khai báo schema; `rebuild_silver` khai báo schema.
 
 ### Ghi
 
@@ -446,6 +460,12 @@ python -m jobs.rebuild_silver --date-from 2026-11-01 --date-to 2026-11-08
 
 **Lịch chạy:** cron lúc **01:00 giờ VN (18:00 UTC)**, `rebuild_silver` cho **ngày UTC hôm trước** (partition theo UTC, ngày UTC kết thúc lúc 07:00 sáng VN). Chuyển sang Airflow DAG `nightly_batch` ở tuần 3. Lưu ý `crawl_full` chạy 00:00–04:00 giờ VN; nó chủ yếu chờ mạng nên chạy cùng Spark được, nhưng theo dõi RAM đêm đầu.
 
+**Thực tế: chạy lúc 07:30 giờ VN (00:30 UTC)**, script `spark/nightly_batch.sh`. Lúc 01:00 VN vẫn là 18:00 UTC của ngày đang dở, "ngày UTC hôm trước" khi đó là D-1, nên Silver chậm khoảng 1 ngày rưỡi và còn chạy trùng `crawl_full`. Lúc 07:30 ngày UTC vừa kết thúc 30 phút (đủ để Bronze ghi nốt), Silver chỉ chậm khoảng 30 phút. Script còn:
+- tự bù ngày lỡ: nhớ ngày cuối đã dựng ở `state/nightly_batch_last_day.txt`, lần sau chạy tiếp từ ngày kế tiếp;
+- luôn làm lại thêm ngày hôm kia, để nhặt event vào Bronze muộn;
+- không chạy, và không đánh dấu ngày đó là xong, nếu HDFS, Spark hoặc `kafka-to-bronze` đang tắt;
+- cấp 1,5 GB cho driver (đo được đỉnh khoảng 990 MB khi để mặc định 1 GB).
+
 ### 10.4. Tháo chặn thành viên 2 (làm sớm)
 
 `build_silver_sample.py`: đọc thẳng file JSONL trong `landing/` (không cần Kafka, HDFS hay Spark), áp `normalize`, ghi bảng Delta ra đường dẫn local `./datalake_local/silver_sample/price/`. Lấy 2 đến 3 ngày dữ liệu là đủ.
@@ -488,22 +508,22 @@ Mỗi bước xong thì dừng và báo.
 
 **Bước 11 — `jobs/rebuild_silver.py`.** Chạy cho toàn bộ khoảng ngày đã có. So số bản ghi Silver cộng quarantine với số `event_id` khác nhau trong Bronze.
 
-**Bước 12 — Cron `nightly_batch`.** 01:00 giờ VN.
+**Bước 12 — Cron `nightly_batch`.** 01:00 giờ VN. (**Thực tế: 07:30 giờ VN**, lý do ở 10.3.)
 
 ## 12. Tiêu chí hoàn thành
 
 **2A:**
-- [ ] 5 topic tồn tại đúng cấu hình partition, key, retention
-- [ ] Số event trong Bronze khớp với số message đã vào Kafka (so theo offset từng partition)
-- [ ] Tắt `kafka_to_bronze` giữa chừng rồi bật lại: không mất, không trùng
-- [ ] Toàn bộ event trong `landing/` trước mốc chuyển sink đã có trong Bronze, nằm đúng partition ngày giờ gốc
-- [ ] Crawler chạy qua `SINK=file,kafka`, event mới xuống Bronze trong vòng 5 phút
-- [ ] Crawler không chết trong suốt quá trình: `crawl_runs` không có dòng `failed`/`killed` mới ngoài các lần dừng có chủ đích (bước 9, tắt máy)
+- [x] 5 topic tồn tại đúng cấu hình partition, key, retention
+- [x] Số event trong Bronze khớp với số message đã vào Kafka (so theo offset từng partition)
+- [x] Tắt `kafka_to_bronze` giữa chừng rồi bật lại: không mất, không trùng
+- [x] Toàn bộ event trong `landing/` trước mốc chuyển sink đã có trong Bronze, nằm đúng partition ngày giờ gốc
+- [x] Crawler chạy qua `SINK=file,kafka`, event mới xuống Bronze trong vòng 5 phút
+- [x] Crawler không chết trong suốt quá trình: `crawl_runs` không có dòng `failed`/`killed` mới ngoài các lần dừng có chủ đích (bước 9, tắt máy). Từ lúc chuyển sink chỉ có 3 run `killed`, do WSL tự khởi động lại lúc 08:54 UTC ngày 10/11 (máy hết RAM vì project khác), crawler không lỗi
 
 **2B:**
-- [ ] `normalize` có test pass cho cả 5 sàn, mỗi sàn 3 ca
-- [ ] Chạy `rebuild_silver` 2 lần trên cùng một ngày ra cùng số bản ghi
-- [ ] Số bản ghi Silver + quarantine = số `event_id` khác nhau trong Bronze của ngày đó
+- [x] `normalize` có test pass cho cả 5 sàn, mỗi sàn 3 ca (92 test)
+- [x] Chạy `rebuild_silver` 2 lần trên cùng một ngày ra cùng số bản ghi
+- [x] Số bản ghi Silver + quarantine = số `event_id` khác nhau trong Bronze của ngày đó
 - [ ] Có số liệu tỉ lệ quarantine theo từng loại lỗi, và tỉ lệ `dq_flags`, theo từng sàn (cho báo cáo)
 - [ ] `docs/bronze_silver_schema.md` đã gửi nhóm
 
@@ -526,9 +546,12 @@ docker exec -it namenode hdfs dfsadmin -report
 docker exec -it namenode hdfs dfs -ls -R /datalake/bronze | head -50
 docker exec -it namenode hdfs dfs -du -h /datalake
 
-# Spark
-bash spark/submit.sh jobs/kafka_to_bronze.py
-# Spark UI: http://localhost:4040, master UI: http://localhost:8080
+# Spark (chạy trong crawler/)
+bash spark/submit.sh --name kafka-to-bronze --detach --conf spark.cores.max=1 jobs/kafka_to_bronze.py
+docker logs --tail 5 kafka-to-bronze
+bash spark/submit.sh --ui-port 4041 --mem 1536m jobs/rebuild_silver.py --date 2026-11-09
+bash spark/nightly_batch.sh --dry-run      # xem lần chạy đêm tới sẽ dựng những ngày nào
+# Spark UI của kafka-to-bronze: http://localhost:4040, master UI: http://localhost:8080
 
 # Theo dõi tài nguyên
 docker stats --no-stream
@@ -538,3 +561,37 @@ free -h
 python -m jobs.status --hours 6
 tmux attach -t crawler      # thoát: đóng tab terminal (Ctrl+B bị VS Code chặn), KHÔNG Ctrl+C
 ```
+
+## 14. Kết quả thực hiện (10/11/2026)
+
+Số liệu đều đã kiểm chứng bằng lệnh, không ước lượng.
+
+**Mốc chuyển crawler sang `SINK=file,kafka`:** `2026-11-09T15:28:38Z` (lưu ở `state/sink_switch_until.txt`, và là `SWITCH_TIME` trong `jobs/rebuild_silver.py`). Vòng crawl đầu sau mốc: 5.998 dòng `landing/` = 5.998 message Kafka = 5.998 dòng Bronze, xuống Bronze trong vòng 5 phút.
+
+**Replay (bước 10):** 1.995.998 event trước mốc, tốc độ 500 event/giây, 22:49–23:55 giờ VN ngày 09/11, 0 lỗi, 0 vào `dlq.invalid`.
+
+**Bronze (kiểm tra sáng 10/11):**
+- 2.102.273 dòng price + 6.822 dòng product; offset liền mạch từ 0 ở cả 9 partition Kafka.
+- 957/957 nhóm (sàn, ngày, giờ) khớp `landing/` cả số dòng lẫn checksum; 0 dòng sai partition, 0 dòng `_unknown`.
+- Khoảng 280 MB gzip (gấp đôi với 2 bản sao), 1.482 file.
+- Thử tắt giữa batch rồi bật lại: batch đó chạy lại đúng 39.996 dòng, không mất, không trùng.
+- Tốc độ: 6.000–20.000 dòng/giây mỗi batch; driver khoảng 550 MB, worker khoảng 900 MB.
+
+**Silver (ngày 01–09/11, dựng ngày 10/11):**
+
+| | price | product |
+| --- | --- | --- |
+| Dòng Bronze | 2.097.026 | 6.822 |
+| `event_id` khác nhau trong Bronze | 2.096.994 | 6.822 |
+| Silver | 2.096.994 | 6.822 |
+| Quarantine | 0 | 0 |
+| `ingest_source = live` (09/11) | 107.293 | 556 |
+
+- Từng ngày trong 9 ngày: Silver + quarantine = số `event_id` khác nhau trong Bronze.
+- 32 dòng trùng `event_id` trong Bronze được bỏ.
+- Ngày 05–07/11 khớp **từng dòng** với Silver mẫu (835.116 price, 2.245 product), cùng kiểu dữ liệu từng cột.
+- Chạy lại cùng ngày ra y hệt; nhánh quarantine thử bằng Bronze giả (`BAD_JSON`, `PRICE_OUT_OF_RANGE`, `MISSING_PRODUCT_ID`) đúng mã lỗi, chạy lại vẫn đúng số dòng.
+- `dq_flags` cả 9 ngày: `MISSING_PRICE` 7.052 (0,34%), `ZERO_PRICE` 219 (0,01%).
+- Thời gian: 3 phút 24 giây cho 9 ngày (khoảng 20 giây mỗi ngày price). Silver price 115 MB (gấp đôi với 2 bản sao).
+
+**Còn lại:** số liệu tỉ lệ `dq_flags` và quarantine theo từng sàn cho báo cáo (mục 12).
