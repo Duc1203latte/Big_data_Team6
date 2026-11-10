@@ -2,8 +2,6 @@
 
 Bài tập lớn môn Lưu trữ và Xử lý Dữ liệu lớn. Thu thập giá sản phẩm từ 5 sàn TMĐT Việt Nam (Tiki, CellphoneS, Hoàng Hà, FPT Shop, Thế Giới Di Động), đưa qua Kafka vào data lake trên HDFS, làm sạch theo kiến trúc Medallion (Bronze → Silver → Gold), rồi phát hiện giá bất thường theo kiến trúc Lambda (batch layer + speed layer).
 
-> **Bạn mới vào nhóm hoặc sắp nhận việc ở tầng sau?** Đọc theo thứ tự: mục 1 (kiến trúc) → mục 3 (dữ liệu đang có) → mục 4 (bàn giao cho tầng Gold, thành viên 2) → mục 5 (cài đặt). Mục 6–7 dành cho người giữ máy chạy hệ thống.
-
 ## 1. Kiến trúc
 
 ```
@@ -79,21 +77,72 @@ Hai nguyên tắc xuyên suốt, tầng nào cũng phải giữ:
 
 ### 4.2. Cách lấy dữ liệu để phát triển
 
-HDFS chỉ mở cổng cho máy chính, máy khác không nối thẳng vào được. Thành viên khác làm việc trên **bản sao Silver** do người giữ máy chính gửi (cách xuất ở mục 7). Giải nén ra thì đọc như sau:
+HDFS chỉ mở cổng cho máy chính, máy khác không nối thẳng vào được. Thành viên khác làm việc trên **bản sao** do người giữ máy chính xuất ra (cách xuất ở mục 7) và để trên Drive của nhóm.
+
+**Bước 1. Tải đúng file trên Drive.**
+
+| Ai | File | Bên trong |
+| --- | --- | --- |
+| Thành viên 2 (Gold), ai cần phân tích | `silver_YYYYMMDD.tar.gz` (ví dụ `silver_20261110.tar.gz`, ~120 MB) | 2 bảng Delta `price/` và `product/`, dữ liệu tới hết ngày trước ngày xuất |
+| Người làm speed layer | `landing_YYYY-MM-DD.tar.gz`, mỗi file 1 ngày (~20–30 MB) | File JSONL gốc của crawler, dùng để bơm vào Kafka (mục 7.2) |
+
+Tên file Silver là **ngày xuất**: `silver_20261110` chứa dữ liệu 01/11 tới hết 09/11.
+
+**Bước 2. Giải nén.** File `.tar.gz` là thư mục được nén. Giải nén bằng lệnh `tar` (có sẵn trên WSL/Linux/macOS và Windows 10 trở lên):
+
+```bash
+# WSL / Linux / macOS
+mkdir -p ~/data
+tar xzf silver_20261110.tar.gz -C ~/data
+```
+
+```powershell
+# Windows (PowerShell hoặc cmd), thư mục đích phải có sẵn
+mkdir D:\data
+tar -xzf silver_20261110.tar.gz -C D:\data
+```
+
+Kết quả:
+
+```
+data/silver_20261110/
+├── price/                     # bảng silver_price
+│   ├── _delta_log/            # nhật ký Delta, BẮT BUỘC giữ nguyên
+│   └── date=2026-11-01/platform=tiki/part-*.parquet ...
+└── product/                   # bảng silver_product
+    ├── _delta_log/
+    └── platform=tiki/part-*.parquet ...
+```
+
+Lưu ý khi giải nén:
+- Giữ nguyên cấu trúc thư mục. **Không** đổi tên, xoá hay chép riêng file nào trong `price/`, `product/`, nhất là `_delta_log/`. Thiếu nhật ký thì bảng không đọc được, hoặc đọc ra sai.
+- Không giải nén bằng cách mở file trong File Explorer rồi kéo thả từng phần. Dùng lệnh `tar` ở trên.
+- Có bản mới thì **xoá cả thư mục bản cũ** rồi giải nén bản mới, không giải nén đè lên bản cũ. Sau đó đổi đường dẫn trong code sang thư mục mới.
+- Gói `landing_*.tar.gz` thì khác: giải nén **ngay trong thư mục `crawler/`** của repo để file vào đúng `landing/` (mục 7.2).
+
+**Bước 3. Kiểm tra đã giải nén đúng.** Số dòng phải khớp với số người gửi báo (bản `silver_20261110`: price 2.096.994, product 6.822):
+
+```python
+from deltalake import DeltaTable
+for t in ("price", "product"):
+    print(t, DeltaTable(f"data/silver_20261110/{t}").to_pyarrow_table().num_rows)
+```
+
+**Bước 4. Đọc dữ liệu.**
 
 ```python
 # Không cần Spark: pip install deltalake pyarrow pandas
 from datetime import date
 from deltalake import DeltaTable
 
-price = DeltaTable("silver_20261110/price")
+price = DeltaTable("data/silver_20261110/price")
 df = price.to_pandas(filters=[("date", "=", date(2026, 11, 9)), ("platform", "=", "tiki")])  # date là kiểu date, không phải chuỗi
-product = DeltaTable("silver_20261110/product").to_pandas()
+product = DeltaTable("data/silver_20261110/product").to_pandas()
 ```
 
 ```python
 # Spark 3.5 + package io.delta:delta-spark_2.12:3.3.2
-df = spark.read.format("delta").load("silver_20261110/price").where("date = '2026-11-09'")
+df = spark.read.format("delta").load("data/silver_20261110/price").where("date = '2026-11-09'")
 ```
 
 Chưa có bản sao thì dùng ngay Silver mẫu trong `crawler/datalake_local/silver_sample/` (ngày 05–07/11, cùng schema). Code viết trên bản mẫu hay bản sao, sang Silver thật **chỉ đổi đường dẫn**.
@@ -273,7 +322,7 @@ docker exec namenode rm -r /tmp/$D
 tar czf exports/$D.tar.gz -C exports $D        # gửi file này qua Drive
 ```
 
-Người nhận: xoá bản cũ, `tar xzf silver_YYYYMMDD.tar.gz`, đọc như mục 4.2. Bản sao chỉ để đọc. Kết quả Gold không ghi ngược vào đó mà chạy lại trên máy chính (mục 4.3).
+Người nhận làm theo mục 4.2: tải, giải nén, kiểm tra số dòng, đọc. Khi gửi, báo kèm số dòng price và product để người nhận đối chiếu (xem bằng đoạn kiểm tra ở mục 4.2, bước 3). Bản sao chỉ để đọc. Kết quả Gold không ghi ngược vào đó mà chạy lại trên máy chính (mục 4.3).
 
 ### 7.2. `landing/` theo ngày (cho người làm speed layer, kiểm thử tải)
 
