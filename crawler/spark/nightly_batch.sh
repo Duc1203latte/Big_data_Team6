@@ -66,7 +66,7 @@ bash spark/submit.sh --name nightly-batch --ui-port 4042 --mem 1536m \
 echo "$DATE_TO" > "$STATE_FILE"
 log "done $DATE_FROM .. $DATE_TO in $(( $(date +%s) - START ))s"
 
-# Đóng gói Silver + landing/ mới gửi nhóm (exports/data_YYYYMMDD.tar.gz). Lỗi ở đây không ảnh hưởng Silver
+# Đóng gói gửi nhóm (exports/silver_YYYYMMDD.tar.gz + landing_YYYY-MM-DD.tar.gz). Lỗi ở đây không ảnh hưởng Silver
 # đã dựng xong ở trên; chạy lại tay: bash spark/export_for_team.sh
 if ! bash spark/export_for_team.sh; then
   log "ERROR: export_for_team failed"
