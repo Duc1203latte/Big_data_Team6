@@ -66,6 +66,14 @@ bash spark/submit.sh --name nightly-batch --ui-port 4042 --mem 1536m \
 echo "$DATE_TO" > "$STATE_FILE"
 log "done $DATE_FROM .. $DATE_TO in $(( $(date +%s) - START ))s"
 
+# Đối soát lại cảnh báo giá trong ClickHouse với dữ liệu Silver/Gold đầy đủ (nếu ClickHouse đang bật)
+if docker inspect -f '{{.State.Running}}' clickhouse 2>/dev/null | grep -q true; then
+  log "running verify_alerts against full Silver/Gold tables"
+  if ! bash spark/submit.sh --name nightly-verify-alerts --ui-port 4044 --mem 1536m jobs/verify_alerts.py; then
+    log "WARNING: verify_alerts failed"
+  fi
+fi
+
 # Đóng gói gửi nhóm (exports/silver_YYYYMMDD.tar.gz + landing_YYYY-MM-DD.tar.gz). Lỗi ở đây không ảnh hưởng Silver
 # đã dựng xong ở trên; chạy lại tay: bash spark/export_for_team.sh
 if ! bash spark/export_for_team.sh; then
