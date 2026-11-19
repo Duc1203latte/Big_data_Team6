@@ -1,0 +1,24 @@
+{
+  "watermark_minutes": 10,
+  "trigger_seconds": 10,
+  "rules": {
+    "historical_deviation": {
+      "enabled": true,
+      "min_dev_ratio": 0.30,
+      "min_robust_z": 3.5,
+      "mad_floor_ratio": 0.02,
+      "min_abs_diff_vnd": 100000
+    },
+    "cross_platform_cheaper": {
+      "enabled": true,
+      "min_cheaper_ratio": 0.25,
+      "min_abs_diff_vnd": 150000
+    },
+    "fake_promotion": {
+      "enabled": true,
+      "min_discount_pct": 40.0,
+      "max_real_drop_ratio": 0.05,
+      "inflated_original_ratio": 1.50
+    }
+  }
+}
