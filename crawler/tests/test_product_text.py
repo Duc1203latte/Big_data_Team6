@@ -7,6 +7,8 @@ trước, rồi mới sửa code. Mục tiêu: ít nhất ~20 ca.
 import pytest
 
 from common.product_text import (
+    chip_config,
+    chip_tier,
     clean_name,
     coarse_category,
     extract_capacity,
@@ -123,3 +125,27 @@ def test_variant_tokens(clean, expected):
 )
 def test_model_numbers(clean, expected):
     assert model_numbers(clean) == frozenset(expected)
+
+@pytest.mark.parametrize(
+    "clean, expected",
+    [
+        ("macbook air 13 m5 2026 10cpu/8gpu/16gb/512gb", {"10cpu", "8gpu"}),
+        ("macbook pro 14 inch m5 10cpu 10gpu 24gb/1tb", {"10cpu", "10gpu"}),
+        ("iphone 16 pro max 512gb", set()),
+    ],
+)
+def test_chip_config(clean, expected):
+    assert chip_config(clean) == frozenset(expected)
+
+
+@pytest.mark.parametrize(
+    "clean, expected",
+    [
+        ("macbook pro 14 m5 pro 2026 15cpu/16gpu/24gb/1tb", "m5pro"),
+        ("macbook pro 14 inch m5 24gb/1tb", "m5"),
+        ("macbook pro 14 inch m5 max 36gb/2tb", "m5max"),
+        ("iphone 16 pro max 512gb", None),
+    ],
+)
+def test_chip_tier(clean, expected):
+    assert chip_tier(clean) == expected

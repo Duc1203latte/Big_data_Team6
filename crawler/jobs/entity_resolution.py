@@ -1,38 +1,42 @@
-"""entity_resolution: ghép cùng sản phẩm giữa các sàn, ghi Gold product_master (tuần 3, Bước 1).
+"""entity_resolution: ghép cùng sản phẩm giữa các sàn, ghi Gold product_master (tuần 3, bước 1).
 
-Luồng (xem hướng dẫn Bước 1, mục 1.0):
-    (A) Silver -> 1 dòng / product_key
-    (B) chuẩn hoá bằng common/product_text.py
-    (C) embedding tên
-    (D) Qdrant: top-k láng giềng ở sàn khác, cùng loại
-    (E) luật cứng + gom cụm (union-find, tối đa 1 sản phẩm / sàn / cụm) -> master_id
-    (F) ghi gold/product_master + er_candidates, in thống kê
+Luồng:
+    (A) Spark đọc Silver, gom về 1 dòng / product_key (~12.000 dòng) rồi đưa về driver (pandas)
+    (B) chuẩn hoá bằng common/product_text.py: name_clean, brand, category, ram/storage, variants, model_nums
+    (C) embedding tên (fastembed, paraphrase-multilingual-MiniLM-L12-v2, CPU)
+    (D) Qdrant: top-k láng giềng ở sàn khác, cùng category -> cặp ứng viên
+    (E) luật cứng + gom cụm (common/entity_rules.py) -> master_id
+    (F) ghi Gold product_master, er_candidates (cho bước 2 gán nhãn), in tỉ lệ khớp
 
-Chạy thử trên máy (trong crawler/, đã kích hoạt .venv):
-    python -m jobs.entity_resolution \
-        --silver-root ~/Documents/data_porject_Big_data_Team6/silver_20261116 \
-        --gold-root datalake_local/gold --qdrant-path datalake_local/qdrant
+Spark chỉ lo đọc/ghi (đọc được Silver trên HDFS); phần giữa chạy trên driver vì dữ liệu nhỏ và cần
+thư viện Python (fastembed, qdrant-client) -> trên cụm dùng image Spark có sẵn các thư viện này
+(infra/spark/Dockerfile).
+
+Chạy trên máy cá nhân (Qdrant: docker run hoặc docker compose --profile serving):
+    bash spark/run_local.sh jobs/entity_resolution.py \
+        --silver-root ~/data/silver_20261116 --gold-root datalake_local/gold \
+        --qdrant-url http://localhost:6333
+Trên máy chính:
+    bash spark/submit.sh --mem 3g --conf spark.driver.memory=2g jobs/entity_resolution.py \
+        --qdrant-url http://qdrant:6333 --model-cache /opt/spark/work-dir/models
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import logging
+import re
+import uuid
 from datetime import timedelta
 from pathlib import Path
 
-import pandas as pd
-from deltalake import DeltaTable
-
-from common import product_text as pt
-
-import re
-
 import numpy as np
+import pandas as pd
 from fastembed import TextEmbedding
-
-import uuid
-
+from pyspark.sql import DataFrame, SparkSession, Window
+from pyspark.sql import functions as F
+from pyspark.sql import types as T
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
     Distance,
@@ -42,8 +46,14 @@ from qdrant_client.models import (
     PayloadSchemaType,
     PointStruct,
     QueryRequest,
+    SearchParams,
     VectorParams,
 )
+
+from common import entity_rules as er
+from common import product_text as pt
+
+log = logging.getLogger("entity_resolution")
 
 EMBED_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 COLLECTION = "products"
@@ -57,60 +67,69 @@ _EMBED_CAPACITY_RE = re.compile(r"\b\d+(?:[.,]\d+)?\s*(?:gb|tb)\b")
 PRICE_WINDOW_DAYS = 7                       # giá tiêu biểu = trung vị trong 7 ngày gần nhất
 SPEC_STORAGE_KEYS = ("Bộ nhớ trong",)       # khoá trong specs_raw (cellphones, hoangha)
 SPEC_RAM_KEYS = ("RAM", "Dung lượng RAM")
+CANDIDATE_MIN_SCORE = 0.6                   # cặp ứng viên lưu lại cho bước 2 (gán nhãn)
+
+MASTER_SCHEMA = T.StructType([
+    T.StructField("product_key", T.StringType(), False),
+    T.StructField("platform", T.StringType(), False),
+    T.StructField("master_id", T.StringType(), False),
+    T.StructField("cluster_size", T.IntegerType(), False),
+    T.StructField("match_score", T.DoubleType()),
+    T.StructField("name_rep", T.StringType()),
+    T.StructField("name_clean", T.StringType()),
+    T.StructField("brand", T.StringType()),
+    T.StructField("category", T.StringType()),
+    T.StructField("ram_gb", T.IntegerType()),
+    T.StructField("storage_gb", T.IntegerType()),
+    T.StructField("variants", T.ArrayType(T.StringType())),
+    T.StructField("model_nums", T.ArrayType(T.StringType())),
+    T.StructField("price_median", T.DoubleType()),
+    T.StructField("n_obs", T.LongType()),
+])
+
+CANDIDATE_SCHEMA = T.StructType(
+    [T.StructField("key_a", T.StringType()), T.StructField("key_b", T.StringType()),
+     T.StructField("score", T.DoubleType()), T.StructField("price_ratio", T.DoubleType())]
+    + [T.StructField(c, T.BooleanType()) for c in (*er.CHECKS, "matched", "clustered")]
+)
 
 
-def build_products(silver_root: Path) -> pd.DataFrame:
-    """(A) Mục 1.2. Trả 1 dòng / product_key: product_key, platform, name_rep (bỏ "FLASH SALE"),
-    price_median (7 ngày gần nhất), n_obs, brand_raw, category_raw, specs_raw (bản mới nhất)."""
-    # 1) Đọc Silver price, chỉ những cột cần dùng. Chuỗi -> category cho đỡ RAM, rồi đổi lại thành str.
-    price = (
-        DeltaTable(str(silver_root / "price"))
-        .to_pyarrow_table(columns=["product_key", "platform", "name_raw", "price_current", "date"])
-        .to_pandas(strings_to_categorical=True)
-    )
-    for col in ("product_key", "platform", "name_raw"):
-        price[col] = price[col].astype(str)
+def build_products(spark: SparkSession, silver_root: str) -> pd.DataFrame:
+    """(A) 1 dòng / product_key: platform, n_obs, name_rep (tên xuất hiện nhiều nhất, bỏ "FLASH SALE"),
+    price_median (7 ngày gần nhất, không có thì toàn bộ), brand_raw/category_raw/specs_raw (bản mới nhất)."""
+    price = (spark.read.format("delta").load(f"{silver_root}/price")
+             .select("product_key", "platform", "name_raw", "price_current", "date"))
 
-    # 2) Sàn và số lần quan sát của mỗi product_key
-    stats = price.groupby("product_key").agg(
-        platform=("platform", "first"),
-        n_obs=("name_raw", "size"),
-    )
+    stats = price.groupBy("product_key").agg(F.first("platform").alias("platform"),
+                                             F.count("*").alias("n_obs"))
 
-    # 3) Tên đại diện = tên xuất hiện nhiều nhất, bỏ tên bị nhãn "FLASH SALE" đè (Bước 0)
-    names = price[price["name_raw"].str.strip().str.upper() != "FLASH SALE"]
-    name_counts = names.groupby(["product_key", "name_raw"]).size().reset_index(name="n")
-    name_rep = (
-        name_counts.sort_values(["product_key", "n"], ascending=[True, False])
-        .drop_duplicates("product_key")  # giữ dòng ĐẦU của mỗi key = tên nhiều nhất
-        .set_index("product_key")["name_raw"]
-        .rename("name_rep")
-    )
+    # Tên nhiều nhất; hoà thì lấy tên nhỏ nhất theo thứ tự chữ để chạy lại ra cùng tên
+    names = (price.where(F.upper(F.trim("name_raw")) != "FLASH SALE")
+             .groupBy("product_key", "name_raw").count())
+    by_count = Window.partitionBy("product_key").orderBy(F.desc("count"), F.asc("name_raw"))
+    name_rep = (names.withColumn("rn", F.row_number().over(by_count)).where("rn = 1")
+                .select("product_key", F.col("name_raw").alias("name_rep")))
 
-    # 4) Giá tiêu biểu: trung vị 7 ngày gần nhất; key không có giá trong 7 ngày đó thì lấy trung vị toàn bộ
-    priced = price.dropna(subset=["price_current"])
-    last_day = priced["date"].max()
-    recent = priced[priced["date"] > last_day - timedelta(days=PRICE_WINDOW_DAYS)]
-    med_recent = recent.groupby("product_key")["price_current"].median()
-    med_all = priced.groupby("product_key")["price_current"].median()
-    price_median = med_recent.combine_first(med_all).rename("price_median")
+    priced = price.where(F.col("price_current").isNotNull())
+    last_day = priced.agg(F.max("date")).first()[0]
+    recent = (priced.where(F.col("date") > F.lit(last_day - timedelta(days=PRICE_WINDOW_DAYS)))
+              .groupBy("product_key").agg(F.median("price_current").alias("med_recent")))
+    overall = priced.groupBy("product_key").agg(F.median("price_current").alias("med_all"))
 
-    products = stats.join(name_rep).join(price_median).reset_index()
+    product = (spark.read.format("delta").load(f"{silver_root}/product")
+               .select("product_key", "brand_raw", "category_raw", "specs_raw", "event_time"))
+    newest = Window.partitionBy("product_key").orderBy(F.desc("event_time"))
+    latest = (product.withColumn("rn", F.row_number().over(newest)).where("rn = 1")
+              .drop("rn", "event_time"))
 
-    # 5) Thông tin từ silver_product: bản MỚI NHẤT của mỗi key (bảng giữ mọi lần quan sát)
-    product = DeltaTable(str(silver_root / "product")).to_pandas(
-        columns=["product_key", "brand_raw", "category_raw", "specs_raw", "event_time"]
-    )
-    latest = (
-        product.sort_values("event_time")
-        .drop_duplicates("product_key", keep="last")
-        .drop(columns="event_time")
-    )
-    # left join: 46% key của tiki không có trong silver_product, vẫn phải giữ lại
-    products = products.merge(latest, on="product_key", how="left")
+    out = (stats.join(name_rep, "product_key")          # inner: key chỉ có "FLASH SALE" thì bỏ
+           .join(recent, "product_key", "left").join(overall, "product_key", "left")
+           .withColumn("price_median", F.coalesce("med_recent", "med_all").cast("double"))
+           .drop("med_recent", "med_all")
+           .join(latest, "product_key", "left")          # 46% key tiki không có trang chi tiết
+           .orderBy("product_key"))
+    return pd.DataFrame([r.asDict() for r in out.collect()])
 
-    # Key chỉ có tên "FLASH SALE" thì không có tên đại diện -> bỏ
-    return products.dropna(subset=["name_rep"])
 
 def _none_if_na(value):
     """NaN của pandas -> None. Cần thiết vì `if NaN:` là True (xem giải thích)."""
@@ -159,6 +178,8 @@ def add_features(products: pd.DataFrame) -> pd.DataFrame:
 
     df["variants"] = [pt.variant_tokens(c) for c in df["name_clean"]]
     df["model_nums"] = [pt.model_numbers(c) for c in df["name_clean"]]
+    df["chip"] = [pt.chip_config(c) for c in df["name_clean"]]
+    df["chip_tier"] = [pt.chip_tier(c) for c in df["name_clean"]]
     return df
 
 def embed_text(brand: str | None, name_clean: str) -> str:
@@ -230,6 +251,7 @@ def find_candidates(products: pd.DataFrame, vectors: np.ndarray, qdrant_path: st
                 query=v.tolist(),
                 limit=top_k,
                 with_payload=["product_key"],
+                params=SearchParams(exact=True),     # tìm chính xác: chạy lại ra đúng cặp cũ (HNSW là gần đúng)
                 filter=Filter(
                     must=[FieldCondition(key="category", match=MatchValue(value=c))],
                     must_not=[FieldCondition(key="platform", match=MatchValue(value=p))],
@@ -253,81 +275,113 @@ def find_candidates(products: pd.DataFrame, vectors: np.ndarray, qdrant_path: st
 
 
 def apply_rules(pairs: pd.DataFrame, products: pd.DataFrame, threshold: float) -> pd.DataFrame:
-    """(E) Mục 1.5. Thêm cột ok_score, ok_brand, ok_storage, ok_variant, ok_price, matched."""
-    raise NotImplementedError
+    """(E) Thêm price_ratio và một cột cho mỗi luật (ok_score ... ok_price) cùng cột matched."""
+    info = products.set_index("product_key")[
+        ["brand", "storage_gb", "ram_gb", "variants", "model_nums", "chip", "chip_tier", "price_median"]].to_dict("index")
+    rows = []
+    for a, b, score in pairs[["key_a", "key_b", "score"]].itertuples(index=False):
+        pa, pb = info[a], info[b]
+        checks = er.check_pair(pa, pb, float(score), threshold)
+        rows.append({"price_ratio": er.price_ratio(pa["price_median"], pb["price_median"]), **checks})
+    return pd.concat([pairs.reset_index(drop=True), pd.DataFrame(rows)], axis=1)
 
 
 def cluster(products: pd.DataFrame, pairs: pd.DataFrame) -> pd.DataFrame:
-    """(E) Mục 1.5. Union-find theo score giảm dần, chỉ gộp khi tập sàn không giao nhau.
-    Thêm master_id (sha1 product_key nhỏ nhất trong cụm, 16 ký tự), match_score, cluster_size."""
-    raise NotImplementedError
+    """(E) Gom cụm các cặp matched (tối đa 1 sản phẩm / sàn / cụm), thêm master_id, cluster_size, match_score."""
+    platform_of = dict(zip(products["product_key"], products["platform"]))
+    matched = pairs[pairs["matched"]]
+    matches = [er.Match(a, b, float(s), None if pd.isna(r) else float(r))
+               for a, b, s, r in matched[["key_a", "key_b", "score", "price_ratio"]].itertuples(index=False)]
+    attrs_of = {r["product_key"]: er.cluster_attrs(r)
+                for r in products[["product_key", *er.CLUSTER_ATTRS]].to_dict("records")}
+    clusters = er.cluster(platform_of, matches, attrs_of)
+    out = products.copy()
+    out["master_id"] = [clusters[k]["master_id"] for k in out["product_key"]]
+    out["cluster_size"] = [clusters[k]["cluster_size"] for k in out["product_key"]]
+    out["match_score"] = [clusters[k]["match_score"] for k in out["product_key"]]
+    return out
 
 
-def write_outputs(master: pd.DataFrame, pairs: pd.DataFrame, gold_root: Path) -> None:
-    """(F) Mục 1.6. Ghi gold_root/product_master (Delta, overwrite) và gold_root/er_candidates.parquet
-    (mọi cặp score >= 0.6). In tỉ lệ khớp theo sàn, theo category, phân bố cluster_size."""
-    raise NotImplementedError
+def _int_or_none(v):
+    return None if pd.isna(v) else int(v)
 
 
-def main() -> None:
+def write_outputs(spark: SparkSession, master: pd.DataFrame, pairs: pd.DataFrame, gold_root: str) -> None:
+    """(F) Ghi product_master và er_candidates (Delta, ghi đè trọn bảng: chạy lại ra cùng kết quả)."""
+    master_rows = [
+        (r.product_key, r.platform, r.master_id, int(r.cluster_size),
+         None if r.match_score is None or pd.isna(r.match_score) else float(r.match_score),
+         r.name_rep, r.name_clean, _none_if_na(r.brand), r.category, _int_or_none(r.ram_gb),
+         _int_or_none(r.storage_gb), sorted(r.variants), sorted(r.model_nums),
+         None if pd.isna(r.price_median) else float(r.price_median), int(r.n_obs))
+        for r in master.itertuples(index=False)
+    ]
+    df = spark.createDataFrame(master_rows, MASTER_SCHEMA).withColumn("computed_at", F.current_timestamp())
+    (df.coalesce(1).write.format("delta").mode("overwrite").option("overwriteSchema", "true")
+     .save(f"{gold_root}/product_master"))
+
+    cluster_of = dict(zip(master["product_key"], master["master_id"]))
+    keep = pairs[pairs["score"] >= CANDIDATE_MIN_SCORE]
+    cand_rows = [
+        (r.key_a, r.key_b, float(r.score), None if pd.isna(r.price_ratio) else float(r.price_ratio),
+         *[bool(getattr(r, c)) for c in (*er.CHECKS, "matched")],
+         cluster_of[r.key_a] == cluster_of[r.key_b])
+        for r in keep.itertuples(index=False)
+    ]
+    (spark.createDataFrame(cand_rows, CANDIDATE_SCHEMA).withColumn("computed_at", F.current_timestamp())
+     .coalesce(1).write.format("delta").mode("overwrite").option("overwriteSchema", "true")
+     .save(f"{gold_root}/er_candidates"))
+    log.info("Wrote %d products -> %s/product_master, %d candidate pairs (score >= %.2f) -> %s/er_candidates",
+             len(master_rows), gold_root, len(cand_rows), CANDIDATE_MIN_SCORE, gold_root)
+
+
+def report(master: pd.DataFrame, pairs: pd.DataFrame) -> None:
+    """Tỉ lệ sản phẩm khớp với ít nhất một sàn khác (tiêu chí tuần 3), theo sàn và theo loại."""
+    m = master.assign(matched=master["cluster_size"] >= 2)
+    log.info("Matched with >= 1 other platform: %d / %d products (%.1f%%)",
+             m["matched"].sum(), len(m), 100 * m["matched"].mean())
+    for (name, col) in (("platform", "platform"), ("category", "category")):
+        rate = m.groupby(col)["matched"].agg(["sum", "count", "mean"])
+        for k, r in rate.iterrows():
+            log.info("  by %s %-11s %5d / %5d  %5.1f%%", name, k, r["sum"], r["count"], 100 * r["mean"])
+    sizes = m.drop_duplicates("master_id")["cluster_size"].value_counts().sort_index()
+    log.info("Clusters by size: %s", ", ".join(f"{k} sàn: {v}" for k, v in sizes.items()))
+    fails = {c: int((~pairs.loc[pairs["ok_score"], c]).sum()) for c in er.CHECKS if c != "ok_score"}
+    log.info("Pairs above threshold: %d, matched: %d; rejected by rule (above threshold): %s",
+             int(pairs["ok_score"].sum()), int(pairs["matched"].sum()), fails)
+
+
+def main(argv: list[str] | None = None) -> None:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--silver-root", required=True, type=Path)
-    ap.add_argument("--gold-root", required=True, type=Path)
-    ap.add_argument("--qdrant-path", help="Qdrant cục bộ (chạy thử trên máy)")
-    ap.add_argument("--qdrant-url", help="Qdrant server, vd http://qdrant:6333 (máy chính)")
+    ap.add_argument("--silver-root", default="/datalake/silver")
+    ap.add_argument("--gold-root", default="/datalake/gold")
+    ap.add_argument("--qdrant-path", help="Qdrant cục bộ (chậm, chỉ để thử)")
+    ap.add_argument("--qdrant-url", help="Qdrant server, vd http://localhost:6333 hoặc http://qdrant:6333")
     ap.add_argument("--threshold", type=float, default=0.85)
     ap.add_argument("--top-k", type=int, default=10)
     ap.add_argument("--model-cache", type=Path, default=Path("datalake_local/models"),
                     help="thư mục lưu model embedding (tải 1 lần ~240 MB)")
-    args = ap.parse_args()
-
-    # TODO: nối các khâu A -> F theo thứ tự ở docstring đầu file
-    #raise NotImplementedError
-    products = build_products(args.silver_root.expanduser())
-    products = add_features(products)
-
-    # --- Kiểm tra khâu A (tạm thời; sẽ thay bằng các khâu C-F) ---
-    print(f"{len(products):,} sản phẩm")
-    print(pd.crosstab(products["platform"], products["category"]).to_string())
-    devices = products[products["category"].isin(["phone", "tablet", "laptop"])]
-    print("Thiết bị có storage_gb:",
-          devices.groupby("platform")["storage_gb"].apply(lambda s: f"{s.notna().mean():.0%}").to_dict())
-    cols = ["platform", "name_rep", "name_clean", "brand", "ram_gb", "storage_gb", "variants", "model_nums",
-            "price_median"]
-    print(products[products["category"] == "phone"].sample(12, random_state=1)[cols].to_string(index=False))
-
-    # --- Khâu C ---
-    texts = [embed_text(_none_if_na(b), c) for b, c in zip(products["brand"], products["name_clean"])]
-    products["embed_text"] = texts
-    vectors = embed(texts, args.model_cache.expanduser())
-    print("vectors:", vectors.shape, vectors.dtype)
-
-    # Kiểm tra: 8 sản phẩm gần nhất (sàn khác) của một chiếc iPhone 15 ở cellphones
-    i = products.index.get_loc(
-        products[(products["platform"] == "cellphones")
-                 & products["name_rep"].str.startswith("iPhone 15 128GB")].index[0]
-    )
-    scores = vectors @ vectors[i]  # cosine với TẤT CẢ sản phẩm, vì đã chuẩn hoá
-    other = (products["platform"] != "cellphones").to_numpy()
-    top = np.argsort(-np.where(other, scores, -1))[:8]
-    print(f"\nGần nhất với: {products.iloc[i]['name_rep']}")
-    for j in top:
-        r = products.iloc[j]
-        print(f"  {scores[j]:.3f}  {r['platform']:<9} {r['category']:<9} {r['name_rep'][:70]}")
-
-    # --- Khâu D ---
+    args = ap.parse_args(argv)
     if not (args.qdrant_url or args.qdrant_path):
         ap.error("cần --qdrant-url (server) hoặc --qdrant-path (cục bộ)")
-    pairs = find_candidates(products, vectors, args.qdrant_path, args.qdrant_url, args.top_k)
+    silver_root = str(Path(args.silver_root).expanduser()) if args.silver_root.startswith("~") else args.silver_root
 
-    print(f"\n{len(pairs):,} cặp ứng viên")
-    print(pairs["score"].describe(percentiles=[0.1, 0.5, 0.9]).round(3).to_string())
-    info = products.set_index("product_key")[["platform", "category", "name_rep"]]
-    view = (pairs.join(info, on="key_a").join(info, on="key_b", lsuffix="_a", rsuffix="_b"))
-    print("Lọt bộ lọc (phải = 0): cùng sàn", (view["platform_a"] == view["platform_b"]).sum(),
-          "| khác loại", (view["category_a"] != view["category_b"]).sum())
-    print(view[view["category_a"] == "phone"].head(15)[
-        ["score", "platform_a", "name_rep_a", "platform_b", "name_rep_b"]].to_string(index=False))
+    spark = SparkSession.builder.appName("entity_resolution").getOrCreate()
+    spark.sparkContext.setLogLevel("WARN")
+
+    products = add_features(build_products(spark, silver_root))                      # A, B
+    log.info("%d products", len(products))
+    texts = [embed_text(_none_if_na(b), c) for b, c in zip(products["brand"], products["name_clean"])]
+    vectors = embed(texts, args.model_cache.expanduser())                             # C
+    pairs = find_candidates(products, vectors, args.qdrant_path, args.qdrant_url, args.top_k)   # D
+    log.info("%d candidate pairs from Qdrant", len(pairs))
+    pairs = apply_rules(pairs, products, args.threshold)                              # E
+    master = cluster(products, pairs)
+    write_outputs(spark, master, pairs, args.gold_root)                               # F
+    report(master, pairs)
+    spark.stop()
+
 
 if __name__ == "__main__":
     main()

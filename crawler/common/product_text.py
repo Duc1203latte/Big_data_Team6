@@ -297,3 +297,28 @@ def model_numbers(clean: str) -> frozenset[str]:
         t for t in _TOKEN_SPLIT_RE.split(s)
         if any(ch.isdigit() for ch in t) and not _SPEC_RE.match(t)
     )
+
+# B7: cấu hình chip ghi trong tên laptop/tablet: "10cpu", "8gpu" (MacBook M5 10CPU/8GPU khác 10CPU/10GPU)
+_CHIP_RE = re.compile(r"\b(\d+)\s*(cpu|gpu)\b")
+
+
+def chip_config(clean: str) -> frozenset[str]:
+    """B7. Số nhân CPU/GPU trong tên ĐÃ clean_name, vd {"10cpu", "8gpu"}. Rỗng nếu tên không ghi.
+
+    Luật ghép (khâu E): cả hai tên đều ghi thì phải bằng nhau.
+    """
+    return frozenset(f"{n}{kind}" for n, kind in _CHIP_RE.findall(clean))
+
+
+# B8: dòng chip Apple M: "m5", "m5pro", "m5max" ("MacBook Pro M5" khác "MacBook Pro M5 Pro"; chữ "pro"
+# của "MacBook Pro" làm variant_tokens không phân biệt được)
+_CHIP_TIER_RE = re.compile(r"\bm(\d+)(?:\s+(pro|max|ultra))?\b")
+
+
+def chip_tier(clean: str) -> str | None:
+    """B8. Dòng chip Apple M đầu tiên trong tên ĐÃ clean_name, vd "m5pro"; None nếu không có.
+
+    Luật ghép (khâu E): cả hai tên đều có thì phải bằng nhau.
+    """
+    m = _CHIP_TIER_RE.search(clean)
+    return f"m{m.group(1)}{m.group(2) or ''}" if m else None
