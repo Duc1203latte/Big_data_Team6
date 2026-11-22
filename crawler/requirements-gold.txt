@@ -1,0 +1,4 @@
+# Thư viện thêm cho tầng Gold (tuần 3), cài chồng lên requirements.txt:
+#   pip install -r requirements.txt -r requirements-gold.txt
+fastembed==0.9.*        # embedding chạy CPU qua ONNX, không cần torch
+qdrant-client==1.20.*   # có chế độ cục bộ (--qdrant-path) để chạy thử không cần server
