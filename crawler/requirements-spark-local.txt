@@ -1,0 +1,4 @@
+# Chỉ cần khi chạy job Spark ngay trên máy mình (spark/run_local.sh), không dùng trên cụm.
+# Phải cùng phiên bản với cụm: Spark 3.5.8 + delta-spark 3.3.2 (spark/conf/spark-defaults.conf).
+pyspark==3.5.8
+delta-spark==3.3.2
