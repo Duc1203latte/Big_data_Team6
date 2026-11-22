@@ -1,7 +1,7 @@
 # Tuần 3: Batch layer, Gold và batch view (thành viên 2)
 
 README bàn giao cho tuần 4 (speed layer) và tuần 5 (serving, dashboard): cách chạy, dữ liệu ở đâu, cấu hình,
-số đo và lỗi còn biết. Schema từng bảng, khoá Redis, bảng ClickHouse, đề xuất công thức 3 luật:
+số đo và lỗi còn biết. Schema từng bảng, khoá Redis, bảng ClickHouse, công thức 3 luật (đã chốt với thành viên 3, 4 ngày 22/11/2026):
 **[`docs/gold_schema.md`](docs/gold_schema.md)** (người dùng Gold bắt buộc đọc).
 
 ## 1. Đã làm gì

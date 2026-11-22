@@ -18,6 +18,7 @@ Silver ──► entity_resolution ──► product_master ─┐
 - Ghi đè **nguyên tử** (Delta overwrite): speed layer không bao giờ đọc phải bảng ghi dở.
 - Cập nhật mỗi sáng sau khi Silver dựng xong (khoảng 07:30–08:00 giờ VN). Speed layer nạp lại mỗi micro-batch nên tự thấy bản mới.
 - Mọi thời gian là **UTC**. `date` là ngày UTC.
+- **Đã chốt với thành viên 3 (speed layer) và thành viên 4 (serving) ngày 22/11/2026, đồng ý nguyên văn.**
 - **Cột và khoá trong tài liệu này là hợp đồng**: đổi ngưỡng ghép hay thêm dữ liệu không đổi cấu trúc bảng. Muốn đổi cột thì báo trước người dùng.
 - Phát triển trên máy khác: lấy file `gold_YYYYMMDD.tar.gz` trên Drive (cùng chỗ với Silver), giải nén giống Silver (README mục 4.2).
 
@@ -124,7 +125,7 @@ real-time view phủ `[cutoff, bây giờ)`.
 SELECT cutoff FROM bigdata.serving_cutoff FINAL WHERE view_name = 'price';
 ```
 
-Đề xuất cho tuần 4–5 để `price_serving` gộp được: `price_realtime` mỗi dòng là một sự kiện, có ít nhất `event_time`,
+Đã chốt cho tuần 4–5 để `price_serving` gộp được: `price_realtime` mỗi dòng là một sự kiện, có ít nhất `event_time`,
 `date`, `platform`, `product_key`, `sku_id` (`''` khi null), `price_current`, `price_original`, `discount_pct`,
 `is_anomaly`. `price_serving` gom `price_realtime` theo `(date, platform, product_key, sku_id)` ra cùng các cột giá
 như `price_batch_daily` rồi `UNION ALL`, mỗi phía lọc theo `cutoff`.
@@ -135,7 +136,7 @@ như `price_batch_daily` rồi `UNION ALL`, mỗi phía lọc theo `cutoff`.
 | --- | --- | --- | --- |
 | `price:last:{master_id}` | hash | trường = tên sàn, giá trị = `"<giá>|<event_time ISO UTC>"`, vd `21290000|2026-11-15T17:13:00Z` | speed layer mỗi sự kiện; `daily_stats --redis-url` nạp sẵn từ Silver để khởi động không trống |
 
-Chỉ có khoá cho sản phẩm đã ghép (`cluster_size ≥ 2`). Định dạng là đề xuất, thành viên 3 chốt.
+Chỉ có khoá cho sản phẩm đã ghép (`cluster_size ≥ 2`). Định dạng đã chốt với thành viên 3.
 
 ## 7. Qdrant
 
@@ -143,9 +144,10 @@ Collection `products` (cosine, 384 chiều, model `sentence-transformers/paraphr
 Id điểm = `uuid5(NAMESPACE_URL, product_key)`; payload `product_key`, `platform`, `category`, `brand`.
 Tạo lại mỗi lần `entity_resolution` chạy.
 
-## 8. Đề xuất công thức 3 luật bất thường (để thành viên 3 chốt)
+## 8. Công thức 3 luật bất thường (đã chốt)
 
-Kế hoạch ghi "theo công thức trong đề xuất" nhưng tài liệu đề xuất chưa có trong repo. Dưới đây là đề xuất, ngưỡng để trong file cấu hình.
+Kế hoạch ghi "theo công thức trong đề xuất" nhưng tài liệu đề xuất không có công thức, nên nhóm chốt bộ công thức dưới đây
+(thành viên 2 soạn, thành viên 3 và 4 đồng ý ngày 22/11/2026). Ngưỡng để trong file cấu hình của speed layer.
 Ký hiệu: `p` giá bán sự kiện, `o` giá gốc, `d` % giảm; `M`, `MAD`, `Mo` từ `price_baseline`.
 
 | Luật | Bất thường khi | Ngưỡng mặc định | Điểm |
