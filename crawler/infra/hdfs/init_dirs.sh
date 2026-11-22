@@ -4,6 +4,8 @@
 #   /datalake/bronze       dữ liệu thô từ Kafka (kafka_to_bronze)
 #   /datalake/silver       dữ liệu đã làm sạch, Delta (rebuild_silver)
 #   /datalake/quarantine   bản ghi lỗi
+#   /datalake/gold         bảng Gold, Delta (tuần 3: product_master, price_baseline, daily_price_*)
+#   /datalake/bronze_compacted  bản gộp file lớn của Bronze theo ngày (compact_bronze)
 #   /checkpoints           checkpoint của Spark Structured Streaming (KHÔNG BAO GIỜ XOÁ)
 #
 # Chạy: bash infra/hdfs/init_dirs.sh   (HDFS phải đang chạy: docker compose --profile hdfs up -d)
@@ -11,7 +13,7 @@
 set -euo pipefail
 
 CONTAINER="${NAMENODE_CONTAINER:-namenode}"
-DIRS=(/datalake/bronze /datalake/silver /datalake/quarantine /checkpoints)
+DIRS=(/datalake/bronze /datalake/silver /datalake/quarantine /datalake/gold /datalake/bronze_compacted /checkpoints)
 EXPECTED_DATANODES=2
 
 if ! docker exec "$CONTAINER" true 2>/dev/null; then
