@@ -23,9 +23,9 @@ landing/ (JSONL,   │                                                    │  B
 | Hàng đợi | Kafka 3.9 (KRaft, 1 broker) | 5 topic: `raw.price`, `raw.product`, `raw.review`, `dlq.invalid`, `alerts.price` | **Chạy** |
 | Bronze | HDFS 3.4 (1 NameNode, 2 DataNode, 2 bản sao) + Spark Structured Streaming | Lưu nguyên bản mọi event, exactly-once | **Chạy 24/7** |
 | Silver | Delta Lake trên HDFS + Spark batch | Bỏ trùng, chuẩn hoá về một schema chung, gắn cờ chất lượng, tách bản ghi hỏng | **Tự cập nhật 07:30 sáng mỗi ngày** |
-| Gold (thành viên 2) | Delta Lake + Spark, Airflow | `product_master` (chuẩn hoá tên, ghép cùng sản phẩm giữa các sàn), `price_baseline` | Tuần 3, chưa bắt đầu |
+| Gold (thành viên 2) | Delta Lake + Spark, Qdrant, Airflow | `product_master` (ghép cùng sản phẩm giữa các sàn), `price_baseline`, `daily_price_stats`; batch view trong ClickHouse | **Code xong, chờ lên máy chính** ([`crawler/README-3.md`](crawler/README-3.md)) |
 | Speed layer | Spark Streaming đọc Kafka | Phát hiện giá bất thường gần thời gian thực, ghi `alerts.price` | Tuần 4 |
-| Phục vụ | ClickHouse, Redis, Grafana | Truy vấn, cache, dashboard | Sau, chạy trên máy thành viên khác |
+| Phục vụ | ClickHouse, Redis, Grafana | Truy vấn, cache, dashboard | ClickHouse, Redis, Qdrant chạy trên máy chính (profile `serving`); Grafana tuần 5 |
 
 Hai nguyên tắc xuyên suốt, tầng nào cũng phải giữ:
 
@@ -38,7 +38,7 @@ Hai nguyên tắc xuyên suốt, tầng nào cũng phải giữ:
 | --- | --- | --- | --- |
 | 1 (tuần 1) | Crawler 5 sàn, ghi JSONL vào `landing/` | [`crawler/README.md`](crawler/README.md) | Xong 08/11/2026 |
 | 2 (tuần 2) | Kafka, Bronze trên HDFS, Silver Delta, lịch chạy đêm | [`crawler/README-2A.md`](crawler/README-2A.md), [`crawler/docs/bronze_silver_schema.md`](crawler/docs/bronze_silver_schema.md) | Xong 10/11/2026 |
-| 3 (tuần 3) | Gold + batch layer, chuyển lịch chạy đêm sang Airflow | | Chưa bắt đầu |
+| 3 (tuần 3) | Gold + batch layer, chuyển lịch chạy đêm sang Airflow | [`crawler/README-3.md`](crawler/README-3.md), [`crawler/docs/gold_schema.md`](crawler/docs/gold_schema.md), [`crawler/airflow/README.md`](crawler/airflow/README.md) | Code xong 22/11/2026; chờ gán nhãn 500 cặp và chạy 3 đêm trên máy chính |
 | 4 (tuần 4) | Speed layer, `alerts.price` | | Chưa bắt đầu |
 | 5 (tuần 5) | Dashboard, báo cáo chất lượng dữ liệu, kiểm thử tải | | Chưa bắt đầu |
 
@@ -154,7 +154,8 @@ Chưa có bản sao thì dùng ngay Silver mẫu trong `crawler/datalake_local/s
 - Viết job nhận đường dẫn đầu vào và đầu ra làm tham số (`--silver-root`, `--gold-root`…), không viết cứng.
 - Đẩy code lên repo. Người giữ máy chính chạy trên cụm bằng `bash spark/submit.sh <script.py> ...`. Script này chỉ mount thư mục `crawler/` vào container, nên job Spark cần nằm trong `crawler/` (ví dụ `crawler/jobs/`). Muốn để chỗ khác thì báo để sửa `submit.sh`.
 - Gold đề xuất ghi ra `/datalake/gold/<tên bảng>` dạng Delta.
-- Lịch chạy đêm hiện là cron (`crawler/spark/nightly_batch.sh`). Tuần 3 chuyển sang Airflow DAG `nightly_batch`: Silver chạy trước, Gold chạy sau.
+- Lịch chạy đêm là Airflow DAG `nightly_batch` (`crawler/airflow/`): `compact_bronze`, `rebuild_silver`, `entity_resolution`, `price_baseline`, `daily_stats`, `export_for_team`. Cron `spark/nightly_batch.sh` chỉ còn để dự phòng, không bật cùng lúc với DAG.
+- Schema Gold, bảng ClickHouse, khoá Redis cho tuần 4, 5: [`crawler/docs/gold_schema.md`](crawler/docs/gold_schema.md).
 - Muốn làm sạch thêm gì thì sửa trong `crawler/common/normalize.py` (có test), **không viết logic làm sạch thứ hai ở chỗ khác**. Batch và streaming phải cho cùng kết quả.
 
 ### 4.4. Ghi chú cho speed layer (tuần 4)
@@ -266,10 +267,9 @@ Trong terminal của VS Code, Ctrl+B có thể bị VS Code chặn: muốn thoá
 
 ```bash
 bash spark/submit.sh --mem 1536m jobs/rebuild_silver.py --date-from 2026-11-01 --date-to 2026-11-09   # dựng lần đầu
-crontab -e
-# thêm dòng (sửa đường dẫn cho đúng máy):
-# 30 7 * * * /đường/dẫn/crawler/spark/nightly_batch.sh >> /đường/dẫn/crawler/logs/nightly_batch.log 2>&1
 ```
+
+Lịch chạy đêm từ tuần 3 là Airflow DAG `nightly_batch` (Silver rồi Gold): cài theo [`crawler/airflow/README.md`](crawler/airflow/README.md), dựng Gold lần đầu theo [`crawler/README-3.md`](crawler/README-3.md) mục 2. Cron cũ (`30 7 * * * .../spark/nightly_batch.sh`) chỉ dùng khi chưa có Airflow, không bật cùng lúc.
 
 Có sẵn `landing/` cũ (ví dụ chép từ máy khác) thì nạp vào Kafka bằng `replay_producer` trước khi dựng Silver (mục 7.2).
 
@@ -279,7 +279,8 @@ Có sẵn `landing/` cũ (ví dụ chép từ máy khác) thì nạp vào Kafka 
 | --- | --- |
 | Tình trạng crawler | `python -m jobs.status --hours 24` |
 | Bronze có chạy không | `docker logs --tail 5 kafka-to-bronze` |
-| Lịch chạy đêm | `tail logs/nightly_batch.log`, ngày đã dựng xong: `cat state/nightly_batch_last_day.txt` |
+| Lịch chạy đêm | Airflow UI http://localhost:8088 (DAG `nightly_batch`), ngày Silver đã dựng: `cat state/nightly_batch_last_day.txt` |
+| Qdrant, ClickHouse, Redis | `cd infra && docker compose --profile serving ps` |
 | Dựng lại Silver tay | `bash spark/submit.sh --mem 1536m jobs/rebuild_silver.py --date 2026-11-09` |
 | Đóng gói dữ liệu gửi nhóm | tự chạy sau lịch đêm; chạy tay: `bash spark/export_for_team.sh` (mục 7) |
 | Message crawler gửi Kafka bị lỗi | `python -m jobs.replay_producer --failed` (gửi lại `state/kafka_failed/`) |
@@ -313,12 +314,13 @@ Kafka giữ dữ liệu 3 ngày, nên tắt cụm dưới 3 ngày thì Bronze t�
 
 ### 7.1. Máy chính: tự đóng gói mỗi sáng
 
-Sau khi dựng Silver lúc 07:30, `spark/nightly_batch.sh` tự gọi `spark/export_for_team.sh` để tạo trong `crawler/exports/` (xong khoảng 07:33):
+Task cuối của DAG `nightly_batch` (trước đây là cron `spark/nightly_batch.sh`) gọi `spark/export_for_team.sh` để tạo trong `crawler/exports/`:
 
 - `silver_YYYYMMDD.tar.gz` (khoảng 150 MB): nguyên bảng Silver kèm `MANIFEST.txt` ghi số dòng. Bảng Delta gồm file dữ liệu cộng nhật ký `_delta_log`, chép ghép từng phần sẽ hỏng bảng, nên luôn gửi nguyên bảng.
+- `gold_YYYYMMDD.tar.gz`: nguyên các bảng Gold (`product_master`, `price_baseline`, `daily_price_stats`, `daily_price_spread`, `er_candidates`) kèm `MANIFEST.txt`, cho người làm tuần 4, 5. Schema: `crawler/docs/gold_schema.md`.
 - `landing_YYYY-MM-DD.tar.gz` (khoảng 26 MB): mỗi ngày UTC đã xong mà chưa gửi một file, bình thường là ngày hôm qua; cụm tắt mấy hôm thì lần sau ra mấy file. Trong file có `landing/_manifest/YYYY-MM-DD.txt` ghi số dòng. Ngày đã gửi ghi trong `state/export_last_landing_day.txt`.
 
-Thư mục `exports/` chỉ giữ 3 file Silver và 7 file landing mới nhất, cũ hơn tự xoá.
+Thư mục `exports/` chỉ giữ 3 file Silver, 3 file Gold và 7 file landing mới nhất, cũ hơn tự xoá.
 
 **Việc của người giữ máy chính mỗi ngày:** kiểm tra log rồi tải các file mới lên Drive.
 
@@ -339,6 +341,8 @@ bash spark/export_for_team.sh       # hoặc chỉ đóng gói lại, khi Silver
 ### 7.2. Người nhận
 
 **Thành viên 2 (Gold):** chỉ cần file `silver_YYYYMMDD.tar.gz` mới nhất. Làm theo mục 4.2.
+
+**Thành viên 3, 4 (speed layer, serving):** lấy thêm file `gold_YYYYMMDD.tar.gz` mới nhất, giải nén như Silver; ClickHouse, Redis trên máy mình dựng bằng `cd crawler/infra && docker compose --profile serving up -d` (cần `CLICKHOUSE_PASSWORD` trong `infra/.env`).
 
 **Người làm speed layer:** mỗi file landing là một ngày, gom dần vào thư mục `crawler/landing/` của repo trên máy mình (đủ từ `landing_2026-11-01` tới mới nhất). Kafka đã dựng theo mục 5.2 (chỉ phần Kafka). Ví dụ:
 
