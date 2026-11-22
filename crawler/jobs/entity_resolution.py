@@ -31,8 +31,24 @@ import re
 import numpy as np
 from fastembed import TextEmbedding
 
+import uuid
+
+from qdrant_client import QdrantClient
+from qdrant_client.models import (
+    Distance,
+    FieldCondition,
+    Filter,
+    MatchValue,
+    PayloadSchemaType,
+    PointStruct,
+    QueryRequest,
+    VectorParams,
+)
+
 EMBED_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 COLLECTION = "products"
+UPSERT_BATCH = 500      # số điểm gửi lên Qdrant mỗi lần
+QUERY_BATCH = 256       # số truy vấn gửi mỗi lần
 
 EMBED_BATCH_SIZE = 256
 # Dung lượng bỏ khỏi chuỗi embed: luật storage_gb ở khâu E đã lo, để lại thì fptshop (không ghi GB) bị đẩy xa
@@ -162,11 +178,78 @@ def embed(texts: list[str], cache_dir: Path) -> np.ndarray:
     return vectors.astype(np.float32)
 
 
-def find_candidates(products: pd.DataFrame, vectors, qdrant_path: str | None, qdrant_url: str | None,
-                    top_k: int) -> pd.DataFrame:
-    """(D) Mục 1.4. Nạp Qdrant (id = uuid5 từ product_key), tìm top_k láng giềng cùng category, khác platform.
-    Trả cặp ứng viên: key_a < key_b, score."""
-    raise NotImplementedError
+def point_id(product_key: str) -> str:
+    """Qdrant chỉ nhận id là số nguyên hoặc UUID. uuid5 cho cùng product_key -> luôn cùng UUID."""
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, product_key))
+
+
+def find_candidates(products: pd.DataFrame, vectors: np.ndarray, qdrant_path: str | None,
+                    qdrant_url: str | None, top_k: int) -> pd.DataFrame:
+    """(D) Mục 1.4. Nạp Qdrant, tìm top_k láng giềng cùng category, khác platform.
+    Trả cặp ứng viên: key_a < key_b, score (cặp trùng giữ điểm cao nhất)."""
+    client = QdrantClient(url=qdrant_url) if qdrant_url else QdrantClient(path=qdrant_path)
+
+    # 1) Tạo lại collection mỗi lần chạy -> chạy lại cho cùng kết quả, không sót điểm cũ
+    if client.collection_exists(COLLECTION):
+        client.delete_collection(COLLECTION)
+    client.create_collection(
+        COLLECTION,
+        vectors_config=VectorParams(size=vectors.shape[1], distance=Distance.COSINE),
+    )
+    # Chỉ mục cho 2 trường dùng trong bộ lọc (server dùng; chế độ cục bộ bỏ qua và chỉ cảnh báo)
+    for field in ("category", "platform"):
+        client.create_payload_index(COLLECTION, field_name=field, field_schema=PayloadSchemaType.KEYWORD)
+
+    keys = products["product_key"].tolist()
+    platforms = products["platform"].tolist()
+    categories = products["category"].tolist()
+    brands = [_none_if_na(b) for b in products["brand"]]
+
+    # 2) Nạp điểm theo lô
+    for start in range(0, len(keys), UPSERT_BATCH):
+        end = start + UPSERT_BATCH
+        client.upsert(
+            COLLECTION,
+            points=[
+                PointStruct(
+                    id=point_id(k),
+                    vector=v.tolist(),
+                    payload={"product_key": k, "platform": p, "category": c, "brand": b},
+                )
+                for k, v, p, c, b in zip(keys[start:end], vectors[start:end], platforms[start:end],
+                                         categories[start:end], brands[start:end])
+            ],
+        )
+
+    # 3) Tìm láng giềng theo lô: cùng category, khác platform
+    rows = []
+    for start in range(0, len(keys), QUERY_BATCH):
+        end = start + QUERY_BATCH
+        requests = [
+            QueryRequest(
+                query=v.tolist(),
+                limit=top_k,
+                with_payload=["product_key"],
+                filter=Filter(
+                    must=[FieldCondition(key="category", match=MatchValue(value=c))],
+                    must_not=[FieldCondition(key="platform", match=MatchValue(value=p))],
+                ),
+            )
+            for v, p, c in zip(vectors[start:end], platforms[start:end], categories[start:end])
+        ]
+        results = client.query_batch_points(COLLECTION, requests=requests)
+        for key, result in zip(keys[start:end], results):
+            for hit in result.points:
+                other = hit.payload["product_key"]
+                a, b = (key, other) if key < other else (other, key)
+                rows.append((a, b, hit.score))
+    client.close()
+
+    # 4) A tìm thấy B và B tìm thấy A -> 2 dòng cho cùng một cặp; giữ dòng điểm cao nhất
+    pairs = pd.DataFrame(rows, columns=["key_a", "key_b", "score"])
+    return (pairs.sort_values("score", ascending=False)
+            .drop_duplicates(["key_a", "key_b"])
+            .reset_index(drop=True))
 
 
 def apply_rules(pairs: pd.DataFrame, products: pd.DataFrame, threshold: float) -> pd.DataFrame:
@@ -232,6 +315,19 @@ def main() -> None:
         r = products.iloc[j]
         print(f"  {scores[j]:.3f}  {r['platform']:<9} {r['category']:<9} {r['name_rep'][:70]}")
 
+    # --- Khâu D ---
+    if not (args.qdrant_url or args.qdrant_path):
+        ap.error("cần --qdrant-url (server) hoặc --qdrant-path (cục bộ)")
+    pairs = find_candidates(products, vectors, args.qdrant_path, args.qdrant_url, args.top_k)
+
+    print(f"\n{len(pairs):,} cặp ứng viên")
+    print(pairs["score"].describe(percentiles=[0.1, 0.5, 0.9]).round(3).to_string())
+    info = products.set_index("product_key")[["platform", "category", "name_rep"]]
+    view = (pairs.join(info, on="key_a").join(info, on="key_b", lsuffix="_a", rsuffix="_b"))
+    print("Lọt bộ lọc (phải = 0): cùng sàn", (view["platform_a"] == view["platform_b"]).sum(),
+          "| khác loại", (view["category_a"] != view["category_b"]).sum())
+    print(view[view["category_a"] == "phone"].head(15)[
+        ["score", "platform_a", "name_rep_a", "platform_b", "name_rep_b"]].to_string(index=False))
 
 if __name__ == "__main__":
     main()
