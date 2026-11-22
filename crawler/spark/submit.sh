@@ -25,7 +25,11 @@ CRAWLER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Lấy SPARK_IMAGE từ infra/.env nếu có, để cụm và driver luôn cùng một image
 if [[ -f "$CRAWLER_DIR/infra/.env" ]]; then
   SPARK_IMAGE="${SPARK_IMAGE:-$(grep -E '^SPARK_IMAGE=' "$CRAWLER_DIR/infra/.env" | cut -d= -f2- || true)}"
+  # Tài khoản ClickHouse cho job ghi batch view (daily_stats), cùng giá trị container clickhouse dùng
+  CLICKHOUSE_USER="${CLICKHOUSE_USER:-$(grep -E '^CLICKHOUSE_USER=' "$CRAWLER_DIR/infra/.env" | cut -d= -f2- || true)}"
+  CLICKHOUSE_PASSWORD="${CLICKHOUSE_PASSWORD:-$(grep -E '^CLICKHOUSE_PASSWORD=' "$CRAWLER_DIR/infra/.env" | cut -d= -f2- || true)}"
 fi
+export CLICKHOUSE_USER="${CLICKHOUSE_USER:-bigdata}" CLICKHOUSE_PASSWORD="${CLICKHOUSE_PASSWORD:-}"
 IMAGE="${SPARK_IMAGE:-apache/spark:3.5.8-scala2.12-java17-python3-ubuntu}"
 NETWORK="bigdata_default"
 WORK_VOLUME="bigdata_spark-work"
@@ -78,6 +82,7 @@ exec docker run "${RUN_MODE[@]}" \
   -v "$WORK_VOLUME":/opt/spark/work-dir \
   -w /opt/spark/work-dir \
   -e PYTHONPATH=/app \
+  -e CLICKHOUSE_USER -e CLICKHOUSE_PASSWORD \
   "$IMAGE" \
   /opt/spark/bin/spark-submit \
     --properties-file /app/spark/conf/spark-defaults.conf \

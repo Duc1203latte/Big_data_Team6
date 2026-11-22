@@ -1,0 +1,7 @@
+# Thư viện Python thêm vào image Spark (infra/spark/Dockerfile). Image có Python 3.10.
+pandas==2.2.*                 # entity_resolution: xử lý ~12.000 sản phẩm trên driver
+numpy==1.26.*
+fastembed==0.9.*              # embedding CPU qua ONNX, không cần torch
+qdrant-client==1.20.*
+clickhouse-connect==0.8.*     # daily_stats: ghi batch view
+redis==5.2.*                  # daily_stats: nạp sẵn price:last
