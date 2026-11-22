@@ -1,0 +1,19 @@
+# Service systemd (user) để Airflow tự chạy khi WSL khởi động (WSL đã bật systemd, README mục 5.2).
+# Cài:
+#   mkdir -p ~/.config/systemd/user && cp airflow/airflow.service ~/.config/systemd/user/
+#   sửa WorkingDirectory/ExecStart cho đúng đường dẫn repo trên máy
+#   systemctl --user daemon-reload && systemctl --user enable --now airflow
+#   loginctl enable-linger $USER        # để service chạy cả khi chưa mở terminal
+# Xem log: journalctl --user -u airflow -f
+[Unit]
+Description=Airflow standalone (nightly_batch, Big_data_Team6)
+After=docker.service
+
+[Service]
+WorkingDirectory=%h/projects/bigdata-crawler/crawler
+ExecStart=/bin/bash airflow/run.sh
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=default.target
