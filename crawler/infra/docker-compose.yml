@@ -2,6 +2,7 @@
 #   docker compose --profile kafka up -d      # đợt 1 (bước 3)
 #   docker compose --profile hdfs up -d       # đợt 2 (bước 5)
 #   docker compose --profile spark up -d      # đợt 3 (bước 7); job nộp bằng spark/submit.sh
+#   docker compose --profile serving up -d    # tuần 3: Qdrant, ClickHouse, Redis (batch view, speed layer)
 # Chạy trong thư mục crawler/infra/. Biến ${...} lấy từ infra/.env (chép từ .env.example).
 #
 # Mọi service PHẢI có deploy.resources.limits.memory: WSL bị giới hạn RAM (.wslconfig), crawler chạy native
@@ -253,9 +254,87 @@ services:
       retries: 10
       start_period: 20s
 
+  # ---------------------------------------------------------------------------
+  # Serving (tuần 3): Qdrant (embedding sản phẩm), ClickHouse (batch view, real-time view), Redis (cache).
+  # Chạy 24/7 trên máy chính vì speed layer ghi liên tục. Job trong mạng Docker gọi bằng tên service
+  # (qdrant:6333, clickhouse:8123, redis:6379); tiến trình trong WSL gọi localhost.
+  # ---------------------------------------------------------------------------
+
+  qdrant:
+    profiles: ["serving"]
+    image: ${QDRANT_IMAGE:-qdrant/qdrant:v1.20.2}     # cùng phiên bản qdrant-client trong image Spark
+    container_name: qdrant
+    hostname: qdrant
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6333:6333"           # REST + dashboard: http://localhost:6333/dashboard
+    volumes:
+      - qdrant-data:/qdrant/storage
+    deploy:
+      resources:
+        limits:
+          memory: ${QDRANT_MEM_LIMIT:-512m}
+
+  clickhouse:
+    profiles: ["serving"]
+    image: ${CLICKHOUSE_IMAGE:-clickhouse/clickhouse-server:25.8}
+    container_name: clickhouse
+    hostname: clickhouse
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: bigdata
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-bigdata}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?set CLICKHOUSE_PASSWORD in infra/.env}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ports:
+      - "127.0.0.1:8123:8123"           # HTTP (clickhouse-connect, Grafana)
+      - "127.0.0.1:9000:9000"           # native (clickhouse-client)
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      # Chạy các file .sql một lần, lúc volume còn trống. Thêm bảng sau này: chạy tay bằng clickhouse-client.
+      - ./clickhouse/init:/docker-entrypoint-initdb.d:ro
+    ulimits:
+      nofile: {soft: 262144, hard: 262144}
+    deploy:
+      resources:
+        limits:
+          memory: ${CLICKHOUSE_MEM_LIMIT:-1g}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8123/ping | grep -q Ok"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  redis:
+    profiles: ["serving"]
+    image: ${REDIS_IMAGE:-redis:7.4-alpine}
+    container_name: redis
+    hostname: redis
+    restart: unless-stopped
+    # appendonly: ghi xuống đĩa để khởi động lại không mất price:last; hết bộ nhớ thì báo lỗi chứ không tự xoá khoá
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "${REDIS_MAXMEMORY:-192mb}",
+              "--maxmemory-policy", "noeviction"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis-data:/data
+    deploy:
+      resources:
+        limits:
+          memory: ${REDIS_MEM_LIMIT:-256m}
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
 volumes:
   kafka-data:
   hdfs-namenode:
   hdfs-datanode1:
   hdfs-datanode2:
   spark-work:                           # ivy cache (package Kafka/Delta tải 1 lần) + thư mục làm việc
+  qdrant-data:
+  clickhouse-data:
+  redis-data:
